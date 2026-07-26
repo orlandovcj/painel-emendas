@@ -11,7 +11,7 @@ import requests
 
 # Configuração da página do Streamlit
 st.set_page_config(
-    page_title="Painel de Emendas PIX e Obras em SC",
+    page_title="Painel de Emendas PIX - Obras e Materiais Permanentes em SC",
     page_icon="🇧🇷",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -299,7 +299,7 @@ def load_data():
     df_emendas_clean = df_emendas[['municipio_orig', 'municipio_norm', 'codigo_emenda', 'autor', 'valor_emenda', 'mes_ano', 'cnpj_beneficiario']].copy()
 
     # 2. Carregar Excel do TCE-SC (Empenhos)
-    df_tce = pd.read_excel(os.path.join(base_dir, "TCE_empenhos_obras_tranferencias_especiais.xlsx"))
+    df_tce = pd.read_excel(os.path.join(base_dir, "TCE_empenhos_obras_mat_permanentes_tranferencias_especiais.xlsx"))
     df_tce.columns = df_tce.columns.str.strip()
     
     # Mapear colunas do Excel para nomes limpos
@@ -482,8 +482,8 @@ total_empenhado_est = df_tce['valor_empenhado'].sum()
 total_pago_est = df_tce['valor_pago'].sum()
 
 st.sidebar.metric("Total de Emendas PIX", format_currency(total_emendas_est))
-st.sidebar.metric("Total Empenhado (Obras)", format_currency(total_empenhado_est))
-st.sidebar.metric("Total Pago (Obras)", format_currency(total_pago_est))
+st.sidebar.metric("Total Empenhado (Obras e Mat. Permanentes)", format_currency(total_empenhado_est))
+st.sidebar.metric("Total Pago (Obras e Mat. Permanentes)", format_currency(total_pago_est))
 if total_emendas_est > 0:
     st.sidebar.markdown(f"**Taxa de Execução Geral:** {(total_pago_est / total_emendas_est * 100):.1f}%")
 else:
@@ -547,7 +547,7 @@ def get_hover_text(row):
     return (
         f"<b>{row['nome']}</b><br>"
         f"Emendas Recebidas: {format_currency(row['total_emendas'])} ({int(row['qtd_emendas'])} emendas)<br>"
-        f"Pago para Obras: {format_currency(row['total_pago'])} ({int(row['qtd_empenhos'])} empenhos)<br>"
+        f"Pago para Obras e Mat. Permanentes: {format_currency(row['total_pago'])} ({int(row['qtd_empenhos'])} empenhos)<br>"
         f"Empresas Contratadas: {int(row['qtd_empresas'])}<br>"
         f"Taxa de Execução: {row['Execução (%)']:.1f}%<br>"
         f"Parlamentares: {row['parlamentares']}"
@@ -559,9 +559,9 @@ df_map_agg['Tamanho Visual'] = df_map_agg['total_emendas'].apply(lambda x: max(x
 
 # ----------------- RENDERIZAÇÃO DA INTERFACE PRINCIPAL -----------------
 
-st.markdown("<h1 class='main-title'>Painel Interativo de Emendas PIX (RP6) e Obras em Santa Catarina</h1>", unsafe_allow_html=True)
-st.markdown("<div style='font-size: 0.85rem; color: #64748b; margin-top: -15px; margin-bottom: 15px; font-weight: 500;'>Versão 1.3.0</div>", unsafe_allow_html=True)
-st.markdown("##### Cruzamento de dados de Transferências Especiais da União (Emendas PIX) e Empenhos de Obras Públicas Municipais (TCE-SC).")
+st.markdown("<h1 class='main-title'>Painel Interativo de Emendas PIX (RP6), Obras e Mat. Permanentes em Santa Catarina</h1>", unsafe_allow_html=True)
+st.markdown("<div style='font-size: 0.85rem; color: #64748b; margin-top: -15px; margin-bottom: 15px; font-weight: 500;'>Versão 1.4.0</div>", unsafe_allow_html=True)
+st.markdown("##### Cruzamento de dados de Transferências Especiais da União (Emendas PIX), Obras e Mat. Permanentes (TCE-SC).")
 
 # Se nenhum município estiver selecionado, exibir o mapa geral e estatísticas globais do estado
 if st.session_state.selected_mun is None:
@@ -634,10 +634,10 @@ if st.session_state.selected_mun is None:
         </div>
         
         <div class="metric-card-custom" style="border-left: 5px solid #10b981;">
-            <div style="font-size: 0.85rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Pago em Obras</div>
+            <div style="font-size: 0.85rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Pago em Obras e Mat. Permanentes</div>
             <div style="font-size: 2rem; font-weight: 800; color: #065f46; margin-top: 4px;">{format_currency(total_pago_est)}</div>
             <div style="font-size: 0.8rem; color: #475569; margin-top: 6px;">
-                Soma de pagamentos efetuados pelos municípios para fornecedores de obras contratadas.
+                Soma de pagamentos efetuados pelos municípios para fornecedores de obras e material permanente contratadas.
             </div>
         </div>
         
@@ -645,7 +645,7 @@ if st.session_state.selected_mun is None:
             <div style="font-size: 0.85rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Percentual de Execução</div>
             <div style="font-size: 2rem; font-weight: 800; color: #92400e; margin-top: 4px;">{(total_pago_est / total_emendas_est * 100):.2f}%</div>
             <div style="font-size: 0.8rem; color: #475569; margin-top: 6px;">
-                Indica o quanto do recurso de transferências especiais de emendas já foi pago nas obras contratadas.
+                Indica o quanto do recurso de transferências especiais de emendas já foi pago nas obras e material permanente contratadas.
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -730,7 +730,7 @@ else:
             </div>
             """, unsafe_allow_html=True)
             
-        # 2. Total Empenhado para Obras
+        # 2. Total Empenhado para Obras e Materiais Permanentes
         with col_m2:
             st.markdown(f"""
             <div class="metric-card-custom" style="border-left: 4px solid #f59e0b;">
@@ -740,7 +740,7 @@ else:
             </div>
             """, unsafe_allow_html=True)
             
-        # 3. Total Pago para Obras
+        # 3. Total Pago para Obras e Materiais Permanentes
         with col_m3:
             st.markdown(f"""
             <div class="metric-card-custom" style="border-left: 4px solid #10b981;">
@@ -764,7 +764,7 @@ else:
         # Abas de navegação de dados do município
         tab_emendas, tab_obras, tab_empresas, tab_historico = st.tabs([
             "📂 Emendas & Parlamentares",
-            "🚧 Obras & Empenhos",
+            "🚧 Empenhos de Obras e Mat. Permanentes",
             "🏢 Empresas Contratadas",
             "📝 Detalhes e Histórico Textual"
         ])
@@ -1112,17 +1112,17 @@ else:
                 else:
                     st.info("💡 Selecione uma linha na tabela acima para consultar o objeto pactuado e dados de conta bancária desta emenda na API do Transferegov.")
                     
-        # ----------------- ABA 2: OBRAS E EMPENHOS -----------------
+        # ----------------- ABA 2: EMPENHOS DE OBRAS E MAT. PERMANENTES -----------------
         with tab_obras:
-            st.subheader("Empenhos e Obras Públicas Relacionadas")
+            st.subheader("Empenhos de Obras e Mat. Permanentes")
             if muni_tce_df.empty:
-                st.info("Nenhum empenho de obras públicas encontrado no TCE-SC para este município.")
+                st.info("Nenhum empenho de obras e material permanente encontrado no TCE-SC para este município.")
             else:
                 # Classificar empenhos em vinculados a emendas específicas ou gerais
                 df_linked = muni_tce_df[muni_tce_df['codigo_emenda'].notna()].copy()
                 df_unlinked = muni_tce_df[muni_tce_df['codigo_emenda'].isna()].copy()
                 
-                st.markdown(f"**Total de Empenhos de Obras:** {len(muni_tce_df)} "
+                st.markdown(f"**Total de Empenhos de Obras e Material Permanente:** {len(muni_tce_df)} "
                             f"(🔗 {len(df_linked)} vinculados a emendas específicas via texto | ⚖️ {len(df_unlinked)} empenhos gerais)")
                 
                 # Opção de filtro de exibição
@@ -1217,7 +1217,7 @@ else:
                     
         # ----------------- ABA 4: HISTÓRICO TEXTUAL E LINKS -----------------
         with tab_historico:
-            st.subheader("Histórico Detalhado dos Empenhos (Obras)")
+            st.subheader("Histórico Detalhado dos Empenhos (Obras e Materiais Permanentes)")
             if muni_tce_df.empty:
                 st.info("Histórico de empenhos indisponível para este município.")
             else:
@@ -1241,7 +1241,7 @@ else:
                     extracted_urls = re.findall(r'https?://[^\s,;()]+', text)
                     
                     # Gerar link do Google como ferramenta de busca adicional
-                    query = f"empenho {row['num_empenho']} {row['ano_empenho']} {muni_name} Santa Catarina obras"
+                    query = f"empenho {row['num_empenho']} {row['ano_empenho']} {muni_name} Santa Catarina obras e materiais permanentes"
                     google_search_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}"
                     
                     # Estilo visual do cartão do histórico

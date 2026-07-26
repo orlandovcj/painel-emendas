@@ -6,6 +6,17 @@ O formato é baseado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
+## [1.4.0] - 2026-07-26
+
+### Adicionado
+- Documentação da Aba 4 ("Detalhes e Histórico Textual") no `README.md`.
+
+### Modificado
+- Fonte de dados dos empenhos atualizada para a planilha `TCE_empenhos_obras_mat_permanentes_tranferencias_especiais.xlsx` extraída do Portal Farol do TCE-SC. Esta planilha abrange todos os empenhos municipais catarinenses custeados pelas Transferências Especiais da União (Emendas PIX) que foram aplicados tanto em obras quanto em aquisição de materiais permanentes, ampliando o escopo do painel analítico.
+- Atualização das referências no `README.md` sobre a nova fonte de dados de empenhos e nomenclatura das abas correspondentes na interface da aplicação.
+
+---
+
 ## [1.3.0] - 2026-07-24
 
 ### Adicionado

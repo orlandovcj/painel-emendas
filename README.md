@@ -1,8 +1,8 @@
-# Painel Interativo de Emendas Parlamentares e Obras Públicas em Santa Catarina (Emendas PIX)
+# Painel Interativo de Emendas Parlamentares, Obras e Materiais Permanentes em Santa Catarina (Emendas PIX)
 
 Este é um painel de controle interativo e analítico premium, desenvolvido em Python com a biblioteca **Streamlit**, projetado para monitorar e fiscalizar a destinação e a execução física/financeira de recursos públicos federais provenientes de **Transferências Especiais da União (RP6 / Emendas PIX)** destinadas aos municípios do estado de Santa Catarina.
 
-A aplicação cruza dados de repasses orçamentários, históricos de empenhos municipais para obras de infraestrutura, licitações municipais enviadas ao tribunal, e consultas em tempo real com apuração de extratos e contas correntes na base oficial de dados do governo federal (Transferegov).
+A aplicação cruza dados de repasses orçamentários, históricos de empenhos municipais para obras e materiais permanentes, licitações municipais enviadas ao tribunal, e consultas em tempo real com apuração de extratos e contas correntes na base oficial de dados do governo federal (Transferegov).
 
 ---
 
@@ -39,7 +39,7 @@ O painel visa aprimorar a transparência pública, permitindo que cidadãos, ges
 
 ## 📂 Organização das Abas (Tabs)
 
-### 1. 📊 Emendas & Parlamentares
+### 1. 📂 Emendas & Parlamentares
 
 Focada nas fontes de recursos.
 
@@ -48,7 +48,7 @@ Focada nas fontes de recursos.
 - Contém a funcionalidade de consulta viva de **Lançamentos Financeiros (Extrato)** com cartões consolidados de crédito/débito e o gráfico analítico de pagamentos a PJs.
 - Lista as **Licitações Municipais Associadas** por cálculo de similaridade textual, indicando o grau de correspondência e a origem do casamento.
 
-### 2. 🚧 Obras & Empenhos
+### 2. 🚧 Empenhos de Obras e Mat. Permanentes
 
 Focada na execução física e orçamentária dos contratos municipais.
 
@@ -63,6 +63,15 @@ Focada nas construtoras e prestadoras de serviços terceirizadas.
 - Exibe o ranking consolidado das empresas fornecedoras que receberam recursos no município selecionado.
 - Detalha a quantidade de empenhos atribuídos a cada empresa, o total empenhado, liquidado e o efetivamente pago em conta corrente.
 
+### 4. 📝 Detalhes e Histórico Textual
+
+Focada na pesquisa textual e detalhamento individual de empenhos.
+
+- Permite buscar empenhos e credores por palavras-chave específicas (ex: asfalto, creche, etc.).
+- Apresenta os registros formatados em cartões informativos contendo o valor empenhado e pago.
+- Oferece um botão para busca direta de informações do empenho no Google.
+- Extrai e disponibiliza links clicáveis para acesso rápido a portais externos de transparência ou editais quando detectados no histórico.
+
 ---
 
 ## 🛠️ Estrutura do Projeto
@@ -70,10 +79,10 @@ Focada nas construtoras e prestadoras de serviços terceirizadas.
 ```
 painel-emendas/
 ├── dados/
-│   ├── emendas-por-favorecido.csv                      # Cadastro de emendas RP6 recebidas
-│   ├── TCE_empenhos_obras_tranferencias_especiais.xlsx # Histórico de empenhos de obras de SC
-│   ├── TCE_licitacoes_obras.xlsx                       # Cadastro de licitações de obras de SC
-│   └── municipios_sc.csv                               # Coordenadas geográficas dos municípios de SC
+│   ├── emendas-por-favorecido.csv                                      # Cadastro de emendas RP6 recebidas
+│   ├── TCE_empenhos_obras_mat_permanentes_tranferencias_especiais.xlsx # Empenhos de obras e materiais permanentes de SC
+│   ├── TCE_licitacoes_obras.xlsx                                       # Cadastro de licitações de obras de SC
+│   └── municipios_sc.csv                                               # Coordenadas geográficas dos municípios de SC
 ├── app.py                                              # Script principal e código da interface Streamlit
 ├── requirements.txt                                    # Lista de dependências Python do projeto
 ├── LICENSE                                             # Licença do repositório
@@ -120,7 +129,8 @@ O painel será aberto automaticamente no endereço padrão: [http://localhost:85
 ## 📊 Fontes de Dados
 
 - **Emendas Parlamentares RP6**: Portal de Dados Abertos do Transferegov (Ministério da Gestão e da Inovação em Serviços Públicos).
-- **Empenhos e Licitações Municipais de Santa Catarina**: Portal de Contas Públicas do Tribunal de Contas do Estado de Santa Catarina (TCE-SC).
+- **Empenhos de Obras e Materiais Permanentes (TCE-SC)**: Planilha `TCE_empenhos_obras_mat_permanentes_tranferencias_especiais.xlsx` extraída do **Portal Farol do TCE-SC**. Contém todos os empenhos dos municípios catarinenses que tiveram como fonte de recursos as Transferências Especiais da União (Emendas PIX) e foram aplicados em obras ou materiais permanentes.
+- **Licitações Municipais de Santa Catarina**: Portal de Contas Públicas do Tribunal de Contas do Estado de Santa Catarina (TCE-SC).
 - **Coordenadas de Municípios**: Diretoria de Geociências do Instituto Brasileiro de Geografia e Estatística (IBGE).
 
 ---
