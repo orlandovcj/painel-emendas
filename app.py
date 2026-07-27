@@ -608,7 +608,7 @@ if st.session_state.selected_mun is None:
         )
         
         # Renderizar o gráfico com eventos de seleção/clique ativos
-        map_event = st.plotly_chart(fig, on_select="rerun", key="sc_map_chart", use_container_width=True)
+        map_event = st.plotly_chart(fig, on_select="rerun", key="sc_map_chart", width="stretch")
         
         # Tratar o evento de clique/seleção no mapa
         if map_event and "selection" in map_event and "points" in map_event["selection"] and len(map_event["selection"]["points"]) > 0:
@@ -668,7 +668,7 @@ if st.session_state.selected_mun is None:
             color_continuous_scale=px.colors.sequential.Blues
         )
         fig_mun.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False, coloraxis_showscale=False)
-        st.plotly_chart(fig_mun, use_container_width=True)
+        st.plotly_chart(fig_mun, width="stretch")
         
     with col_c2:
         # Top 10 Parlamentares por Valor de Emenda em SC
@@ -686,7 +686,7 @@ if st.session_state.selected_mun is None:
             color_continuous_scale=px.colors.sequential.Greens
         )
         fig_aut.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False, coloraxis_showscale=False)
-        st.plotly_chart(fig_aut, use_container_width=True)
+        st.plotly_chart(fig_aut, width="stretch")
 
 # Se um município específico estiver selecionado
 else:
@@ -734,7 +734,7 @@ else:
         with col_m2:
             st.markdown(f"""
             <div class="metric-card-custom" style="border-left: 4px solid #f59e0b;">
-                <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Empenhado (Obras)</div>
+                <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Empenhado (Obras e Mat. Perm.)</div>
                 <div style="font-size: 1.6rem; font-weight: 700; color: #b45309; margin-top: 4px;">{format_currency(muni_row['total_empenhado'])}</div>
                 <div style="font-size: 0.85rem; color: #475569; margin-top: 6px;"><b>{int(muni_row['qtd_empenhos'])}</b> empenhos registrados</div>
             </div>
@@ -744,7 +744,7 @@ else:
         with col_m3:
             st.markdown(f"""
             <div class="metric-card-custom" style="border-left: 4px solid #10b981;">
-                <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Pago em Obras</div>
+                <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Pago em Obras e Mat. Perm.</div>
                 <div style="font-size: 1.6rem; font-weight: 700; color: #047857; margin-top: 4px;">{format_currency(muni_row['total_pago'])}</div>
                 <div style="font-size: 0.85rem; color: #475569; margin-top: 6px;">Liquidado: {format_currency(muni_row['total_liquidado'])}</div>
             </div>
@@ -786,7 +786,7 @@ else:
                     # Habilita seleção de linha simples na tabela de emendas
                     selection = st.dataframe(
                         df_em_show,
-                        use_container_width=True,
+                        width="stretch",
                         hide_index=True,
                         on_select="rerun",
                         selection_mode="single-row",
@@ -805,7 +805,7 @@ else:
                         hole=0.4
                     )
                     fig_pie.update_layout(showlegend=True)
-                    st.plotly_chart(fig_pie, use_container_width=True)
+                    st.plotly_chart(fig_pie, width="stretch")
                 
                 # Exibir detalhes da emenda selecionada vindos da API Transferegov
                 selected_rows = selection.get("selection", {}).get("rows", [])
@@ -881,7 +881,7 @@ else:
                                 """, unsafe_allow_html=True)
                                 
                                 st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-                                show_mov = st.button("📊 Consultar Lançamentos Financeiros", key=f"btn_mov_{selected_code}_{muni_norm}", use_container_width=True)
+                                show_mov = st.button("📊 Consultar Lançamentos Financeiros", key=f"btn_mov_{selected_code}_{muni_norm}", width="stretch")
                             
                             # --- SEÇÃO DE LANÇAMENTOS FINANCEIROS (EXTRATO) ---
                             key_state = f"show_mov_state_{selected_code}_{muni_norm}"
@@ -987,7 +987,7 @@ else:
                                     
                                     st.dataframe(
                                         df_tx_show[['Data', 'Operação', 'Descrição', 'Origem/Destino', 'CNPJ/CPF', 'Valor']],
-                                        use_container_width=True,
+                                        width="stretch",
                                         hide_index=True
                                     )
                                     
@@ -1041,7 +1041,7 @@ else:
                                             yaxis=dict(title=None, categoryorder='total ascending')
                                         )
                                         
-                                        st.plotly_chart(fig_pj, use_container_width=True)
+                                        st.plotly_chart(fig_pj, width="stretch")
                                 else:
                                     st.info("ℹ️ Nenhuma movimentação financeira encontrada ou registrada para esta conta corrente.")
                             
@@ -1104,7 +1104,7 @@ else:
                                     df_matches_show.columns = ['Edital', 'Modalidade', 'Objeto da Licitação', 'Situação', 'Origem da Similaridade', 'Similaridade (%)', 'Valor Previsto']
                                     df_matches_show = df_matches_show[['Edital', 'Modalidade', 'Objeto da Licitação', 'Valor Previsto', 'Situação', 'Similaridade (%)', 'Origem da Similaridade']]
                                     
-                                    st.dataframe(df_matches_show, use_container_width=True, hide_index=True)
+                                    st.dataframe(df_matches_show, width="stretch", hide_index=True)
                         else:
                             st.info("ℹ️ Nenhum dado retornado pela API Transferegov para esta emenda.")
                     except Exception as e:
@@ -1173,7 +1173,7 @@ else:
                     df_tce_show['Vl. Empenhado (R$)'] = df_tce_show['Vl. Empenhado (R$)'].apply(format_currency)
                     df_tce_show['Vl. Pago (R$)'] = df_tce_show['Vl. Pago (R$)'].apply(format_currency)
                     
-                    st.dataframe(df_tce_show, use_container_width=True, hide_index=True)
+                    st.dataframe(df_tce_show, width="stretch", hide_index=True)
                     
         # ----------------- ABA 3: EMPRESAS CONTRATADAS -----------------
         with tab_empresas:
@@ -1197,7 +1197,7 @@ else:
                 col_tab3_1, col_tab3_2 = st.columns([6, 4])
                 
                 with col_tab3_1:
-                    st.dataframe(df_credores_show, use_container_width=True, hide_index=True)
+                    st.dataframe(df_credores_show, width="stretch", hide_index=True)
                 
                 with col_tab3_2:
                     # Bar chart dos maiores credores
@@ -1213,7 +1213,7 @@ else:
                         color_continuous_scale=px.colors.sequential.Turbo
                     )
                     fig_cred.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False, coloraxis_showscale=False)
-                    st.plotly_chart(fig_cred, use_container_width=True)
+                    st.plotly_chart(fig_cred, width="stretch")
                     
         # ----------------- ABA 4: HISTÓRICO TEXTUAL E LINKS -----------------
         with tab_historico:
