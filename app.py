@@ -1133,7 +1133,7 @@ else:
                             
                     # --- SEÇÃO DE LICITAÇÕES SIMILARES POR OBJETIVOS ---
                     st.markdown("<br>", unsafe_allow_html=True)
-                    st.markdown("##### 🔍 Licitações Municipais Associadas (Por Similaridade de Objeto)")
+                    st.markdown("##### 🔍 Licitações Municipais Associadas (Por Similaridade de Objeto e Empresa Contratada)")
                     
                     df_muni_lic = df_lic[df_lic['municipio_norm'] == muni_norm].copy()
                     
