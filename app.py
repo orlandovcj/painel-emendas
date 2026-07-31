@@ -99,6 +99,23 @@ def normalize_name(name):
     name = name.upper().replace("'", " ").replace("-", " ")
     return " ".join(name.split())
 
+# Correções ortográficas e discrepâncias de nomes de municípios entre emendas_sc e coordenadas
+MUNI_CORRECTIONS = {
+    'SAO LOURENCO D OESTE': 'SAO LOURENCO DO OESTE',
+    'SAO MIGUEL D OESTE': 'SAO MIGUEL DO OESTE',
+    'PRESIDENTE CASTELO BRANCO': 'PRESIDENTE CASTELLO BRANCO',
+    'BALNEARIO DE PICARRAS': 'BALNEARIO PICARRAS'
+}
+
+def clean_muni_name(name):
+    if not isinstance(name, str):
+        return ""
+    name_upper = name.strip().upper()
+    for prefix in ["MUNICIPIO DE ", "MUNICIPIO DA ", "MUNICIPIO DO ", "MUNICIPIO "]:
+        if name_upper.startswith(prefix):
+            return name[len(prefix):].strip()
+    return name.strip()
+
 # Função para formatação amigável de valores monetários
 def format_currency(value):
     if pd.isna(value) or value is None:
@@ -276,27 +293,48 @@ EMENDA_PATTERN = re.compile(r'\b(202\d{9})\b')
 def load_data():
     base_dir = r"c:\Users\Dell\Documents\GitHub\painel-emendas\dados"
     
-    # 1. Carregar CSV de Emendas
-    df_emendas = pd.read_csv(os.path.join(base_dir, "emendas-por-favorecido.csv"), sep=";", encoding="utf-8-sig")
-    df_emendas.columns = df_emendas.columns.str.replace('"', '').str.strip()
+    # Helper to clean bank account/code fields from CSV (floats to pure numeric strings)
+    def clean_csv_int_str(val):
+        if pd.isna(val) or val is None:
+            return ""
+        val_str = str(val).split('.')[0].strip()
+        return "".join([c for c in val_str if c.isdigit()])
     
-    # Mapear colunas do CSV para nomes limpos
-    mun_col_csv = [c for c in df_emendas.columns if 'mun' in c.lower()][0]
-    val_col_csv = 'Valor'
-    cod_col_csv = [c for c in df_emendas.columns if 'código' in c.lower() or 'codigo' in c.lower()][0]
-    autor_col_csv = [c for c in df_emendas.columns if 'autor' in c.lower()][0]
-    mes_col_csv = [c for c in df_emendas.columns if 'mês' in c.lower() or 'mes' in c.lower()][0]
+    # 1. Carregar CSV de Emendas
+    df_emendas = pd.read_csv(os.path.join(base_dir, "emendas_sc.csv"), sep=";")
     
     # Criar colunas limpas
-    df_emendas['municipio_orig'] = df_emendas[mun_col_csv]
-    df_emendas['municipio_norm'] = df_emendas[mun_col_csv].apply(normalize_name)
-    df_emendas['valor_emenda'] = df_emendas[val_col_csv].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).astype(float)
-    df_emendas['codigo_emenda'] = df_emendas[cod_col_csv].astype(int)
-    df_emendas['autor'] = df_emendas[autor_col_csv].astype(str)
-    df_emendas['mes_ano'] = df_emendas[mes_col_csv].astype(str)
-    df_emendas['cnpj_beneficiario'] = df_emendas['Favorecido'].apply(extract_cnpj)
+    df_emendas['municipio_orig'] = df_emendas['nome_municipio'].astype(str).apply(clean_muni_name)
+    df_emendas['municipio_norm'] = df_emendas['municipio_orig'].apply(normalize_name).replace(MUNI_CORRECTIONS)
+    df_emendas['valor_emenda'] = df_emendas['valor_emenda'].astype(float)
     
-    df_emendas_clean = df_emendas[['municipio_orig', 'municipio_norm', 'codigo_emenda', 'autor', 'valor_emenda', 'mes_ano', 'cnpj_beneficiario']].copy()
+    # codigo_emenda is e.g. "202141850007-Jorginho Mello", extract the first 12 digits
+    df_emendas['codigo_emenda'] = df_emendas['codigo_emenda'].astype(str).str.slice(0, 12).astype(int)
+    
+    # autor is e.g. "4185 - JORGINHO MELLO"
+    df_emendas['autor'] = df_emendas['codigo_parlamentar'].astype(str) + " - " + df_emendas['nome_parlamentar'].astype(str).str.upper()
+    
+    # mes_ano is extracted from the 12-digit code's first 4 digits (year)
+    df_emendas['year'] = df_emendas['codigo_emenda'].astype(str).str.slice(0, 4)
+    df_emendas['mes_ano'] = "12/" + df_emendas['year']
+    
+    # cnpj_beneficiario is the cnpj_municipio padded to 14 digits
+    df_emendas['cnpj_beneficiario'] = df_emendas['cnpj_municipio'].astype(str).str.zfill(14)
+    
+    # Clean bank account fields
+    df_emendas['codigo_plano_acao'] = df_emendas['codigo_plano_acao'].fillna("").astype(str)
+    df_emendas['objeto_emenda'] = df_emendas['objeto_emenda'].fillna("").astype(str)
+    df_emendas['banco'] = df_emendas['banco'].fillna("").astype(str)
+    df_emendas['codigo_banco'] = df_emendas['codigo_banco'].apply(clean_csv_int_str)
+    df_emendas['agencia'] = df_emendas['agencia'].fillna("").astype(str)
+    df_emendas['agencia_sem_dv'] = df_emendas['agencia_sem_dv'].apply(clean_csv_int_str)
+    df_emendas['conta_corrente'] = df_emendas['conta_corrente'].fillna("").astype(str)
+    df_emendas['conta_corrente_sem_dv'] = df_emendas['conta_corrente_sem_dv'].apply(clean_csv_int_str)
+    
+    df_emendas_clean = df_emendas[[
+        'municipio_orig', 'municipio_norm', 'codigo_emenda', 'autor', 'valor_emenda', 'mes_ano', 'cnpj_beneficiario',
+        'codigo_plano_acao', 'objeto_emenda', 'banco', 'codigo_banco', 'agencia', 'agencia_sem_dv', 'conta_corrente', 'conta_corrente_sem_dv'
+    ]].copy()
 
     # 2. Carregar Excel do TCE-SC (Empenhos)
     df_tce = pd.read_excel(os.path.join(base_dir, "TCE_empenhos_obras_mat_permanentes_tranferencias_especiais.xlsx"))
@@ -389,7 +427,7 @@ def load_data():
         if len(parts) == 2:
             return pd.to_datetime(f"01/{val}", format="%d/%m/%Y", errors='coerce')
         return pd.NaT
-    max_emenda_date = df_emendas[mes_col_csv].apply(parse_em_date).max()
+    max_emenda_date = df_emendas_clean['mes_ano'].apply(parse_em_date).max()
     max_emenda_str = max_emenda_date.strftime('%m/%Y') if pd.notna(max_emenda_date) else "N/A"
     
     # Empenhos
@@ -560,7 +598,7 @@ df_map_agg['Tamanho Visual'] = df_map_agg['total_emendas'].apply(lambda x: max(x
 # ----------------- RENDERIZAÇÃO DA INTERFACE PRINCIPAL -----------------
 
 st.markdown("<h1 class='main-title'>Painel Interativo de Emendas PIX (RP6), Obras e Mat. Permanentes em Santa Catarina</h1>", unsafe_allow_html=True)
-st.markdown("<div style='font-size: 0.85rem; color: #64748b; margin-top: -15px; margin-bottom: 15px; font-weight: 500;'>Versão 1.4.0</div>", unsafe_allow_html=True)
+st.markdown("<div style='font-size: 0.85rem; color: #64748b; margin-top: -15px; margin-bottom: 15px; font-weight: 500;'>Versão 1.5.0</div>", unsafe_allow_html=True)
 st.markdown("##### Cruzamento de dados de Transferências Especiais da União (Emendas PIX), Obras e Mat. Permanentes (TCE-SC).")
 
 # Se nenhum município estiver selecionado, exibir o mapa geral e estatísticas globais do estado
@@ -812,303 +850,387 @@ else:
                 if selected_rows:
                     row_idx = selected_rows[0]
                     # Obter código e CNPJ do DataFrame de emendas original do município
-                    selected_code = muni_emendas_df.iloc[row_idx]['codigo_emenda']
-                    selected_cnpj = muni_emendas_df.iloc[row_idx]['cnpj_beneficiario']
-                    selected_autor = muni_emendas_df.iloc[row_idx]['autor']
+                    row_data = muni_emendas_df.iloc[row_idx]
+                    selected_code = row_data['codigo_emenda']
+                    selected_cnpj = row_data['cnpj_beneficiario']
+                    selected_autor = row_data['autor']
+                    
+                    # Obter dados offline
+                    offline_plano_acao = row_data.get('codigo_plano_acao', '')
+                    offline_objeto = row_data.get('objeto_emenda', '')
+                    offline_banco_nome = row_data.get('banco', '')
+                    offline_banco_codigo = row_data.get('codigo_banco', '')
+                    offline_agencia = row_data.get('agencia', '')
+                    offline_agencia_sem_dv = row_data.get('agencia_sem_dv', '')
+                    offline_conta = row_data.get('conta_corrente', '')
+                    offline_conta_sem_dv = row_data.get('conta_corrente_sem_dv', '')
                     
                     st.markdown("---")
-                    st.markdown(f"#### 🔍 Dados em Tempo Real (Transferegov API): Emenda **{selected_code}** ({selected_autor.split(' - ')[-1]})")
+                    st.markdown(f"#### 🔍 Dados Detalhados da Emenda: **{selected_code}** ({selected_autor.split(' - ')[-1]})")
                     
+                    # Tentamos enriquecer com a API em tempo real
+                    api_data = None
                     try:
                         # Buscar dados da API com cache passando o CNPJ e código
                         api_data = fetch_transferegov_data(selected_code, selected_cnpj)
-                        if api_data:
-                            col_api1, col_api2 = st.columns([6, 4])
-                            
-                            with col_api1:
-                                # Caixa de destaque para o Objeto Pactuado
-                                st.markdown(f"""
-                                <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
-                                    <div style="font-weight: 700; color: #1e40af; margin-bottom: 6px; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.5px;">🎯 Objeto Pactuado</div>
-                                    <div style="font-size: 1rem; color: #1e3a8a; font-style: italic; line-height: 1.5;">
-                                        "{api_data['objeto']}"
-                                    </div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                                
-                                # Detalhes do Plano
-                                st.markdown(f"""
-                                <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 16px; font-size: 0.9rem; color: #475569; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
-                                    <div style="margin-bottom: 6px;"><strong>Área de Política Pública:</strong> {api_data['area_politica']}</div>
-                                    <div><strong>Programa Orçamentário:</strong> {api_data['programa']}</div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                                
-                            with col_api2:
-                                # Cartão bancário estilizado
-                                conta_especifica = api_data['conta_especifica']
-                                if conta_especifica == "Sim":
-                                    especifica_badge = '<span style="background-color: #d1fae5; color: #065f46; padding: 4px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; border: 1px solid #a7f3d0;">CONTA ESPECÍFICA</span>'
-                                else:
-                                    especifica_badge = '<span style="background-color: #ffedd5; color: #9a3412; padding: 4px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; border: 1px solid #fed7aa;">CONTA COMUM</span>'
-                                
-                                st.markdown(f"""
-                                <div style="
-                                    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
-                                    color: #f8fafc;
-                                    border-radius: 16px;
-                                    padding: 20px;
-                                    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-                                    border: 1px solid #475569;
-                                ">
-                                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #475569; padding-bottom: 10px; margin-bottom: 12px;">
-                                        <span style="font-weight: 700; font-size: 0.9rem; letter-spacing: 0.5px; color: #94a3b8;">💳 CONTAS DE EXECUÇÃO</span>
-                                        {especifica_badge}
-                                    </div>
-                                    <div style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 8px;">
-                                        <strong>Banco:</strong> {api_data['banco_codigo']} - {api_data['banco_nome']}
-                                    </div>
-                                    <div style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 8px;">
-                                        <strong>Agência:</strong> {api_data['agencia']}-{api_data['agencia_dv']} ({api_data['agencia_nome']})
-                                    </div>
-                                    <div style="font-size: 1.15rem; font-weight: 700; margin-top: 12px; font-family: monospace; letter-spacing: 1px; color: #60a5fa;">
-                                        C/C: {api_data['conta']}-{api_data['conta_dv']}
-                                    </div>
-                                    <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 15px; text-align: right;">
-                                        Situação do Plano: <b>{api_data['situacao']}</b> (ID: {api_data['id_plano_acao']})
-                                    </div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                                
-                                st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-                                show_mov = st.button("📊 Consultar Lançamentos Financeiros", key=f"btn_mov_{selected_code}_{muni_norm}", width="stretch")
-                            
-                            # --- SEÇÃO DE LANÇAMENTOS FINANCEIROS (EXTRATO) ---
-                            key_state = f"show_mov_state_{selected_code}_{muni_norm}"
-                            if key_state not in st.session_state:
-                                st.session_state[key_state] = False
-                                
-                            if show_mov:
-                                st.session_state[key_state] = not st.session_state[key_state]
-                                
-                            if st.session_state[key_state]:
-                                st.markdown("<br>", unsafe_allow_html=True)
-                                st.markdown("##### 💸 Movimentações Financeiras da Conta Corrente (Transferegov API)")
-                                
-                                with st.spinner("Carregando lançamentos financeiros..."):
-                                    fin_data = fetch_financial_transfers(
-                                        selected_cnpj,
-                                        api_data['banco_codigo'],
-                                        api_data['agencia'],
-                                        api_data['conta']
-                                    )
-                                    
-                                if fin_data and 'data' in fin_data and fin_data['data']:
-                                    tx_list = fin_data['data']
-                                    
-                                    # Calcular resumos
-                                    total_creditos = sum([tx['valor_gestao_financeira'] for tx in tx_list if tx['tipo_operacao_gestao_financeira'] == 'C'])
-                                    total_debitos = sum([tx['valor_gestao_financeira'] for tx in tx_list if tx['tipo_operacao_gestao_financeira'] == 'D'])
-                                    saldo_final = total_creditos - total_debitos
-                                    
-                                    # Renderizar KPIs consolidados
-                                    col_k1, col_k2, col_k3 = st.columns(3)
-                                    with col_k1:
-                                        st.markdown(f"""
-                                        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
-                                            <div style="font-size: 0.72rem; color: #15803d; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">Total Recebido (Créditos)</div>
-                                            <div style="font-size: 1.2rem; font-weight: 700; color: #166534; margin-top: 5px;">{format_currency(total_creditos)}</div>
-                                        </div>
-                                        """, unsafe_allow_html=True)
-                                    with col_k2:
-                                        st.markdown(f"""
-                                        <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
-                                            <div style="font-size: 0.72rem; color: #b91c1c; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">Total Retirado (Débitos)</div>
-                                            <div style="font-size: 1.2rem; font-weight: 700; color: #991b1b; margin-top: 5px;">{format_currency(total_debitos)}</div>
-                                        </div>
-                                        """, unsafe_allow_html=True)
-                                    with col_k3:
-                                        bg_color = "#f0fdfa" if saldo_final >= 0 else "#fff7ed"
-                                        border_color = "#99f6e4" if saldo_final >= 0 else "#ffedd5"
-                                        text_color = "#115e59" if saldo_final >= 0 else "#9a3412"
-                                        st.markdown(f"""
-                                        <div style="background-color: {bg_color}; border: 1px solid {border_color}; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
-                                            <div style="font-size: 0.72rem; color: {text_color}; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">Saldo da Conta</div>
-                                            <div style="font-size: 1.2rem; font-weight: 700; color: {text_color}; margin-top: 5px;">{format_currency(saldo_final)}</div>
-                                        </div>
-                                        """, unsafe_allow_html=True)
-                                        
-                                    st.markdown("<br>", unsafe_allow_html=True)
-                                    
-                                    # Criar dataframe para exibição
-                                    df_tx = pd.DataFrame(tx_list)
-                                    df_tx_show = pd.DataFrame()
-                                    
-                                    df_tx_show['Data'] = pd.to_datetime(df_tx['data_lancamento_gestao_financeira']).dt.strftime('%d/%m/%Y')
-                                    df_tx_show['Operação'] = df_tx['tipo_operacao_gestao_financeira'].apply(
-                                        lambda x: "🟢 Crédito" if x == 'C' else "🔴 Débito"
-                                    )
-                                    df_tx_show['Descrição'] = df_tx['descricao_gestao_financeira'].fillna("Lançamento")
-                                    
-                                    def get_agent_and_doc(row):
-                                        if row['tipo_operacao_gestao_financeira'] == 'C':
-                                            agent = row['nome_depositante_gestao_financeira']
-                                            doc = row['doc_depositante_gestao_financeira']
-                                        else:
-                                            agent = row['nome_favorecido_gestao_financeira']
-                                            doc = row['doc_favorecido_gestao_financeira']
-                                        
-                                        # Obter apenas dígitos numéricos para o documento
-                                        doc_str = ""
-                                        if pd.notna(doc):
-                                            doc_str = "".join([c for c in str(doc).split('.')[0] if c.isdigit()])
-                                            
-                                        # Padronizar CNPJ (14 dígitos) e CPF (11 dígitos) com preenchimento de zeros à esquerda se suprimidos
-                                        if 11 < len(doc_str) <= 14:
-                                            doc_str = doc_str.zfill(14)
-                                            formatted = f"{doc_str[:2]}.{doc_str[2:5]}.{doc_str[5:8]}/{doc_str[8:12]}-{doc_str[12:]}"
-                                        elif 0 < len(doc_str) <= 11:
-                                            doc_str = doc_str.zfill(11)
-                                            formatted = f"{doc_str[:3]}.{doc_str[3:6]}.{doc_str[6:9]}-{doc_str[9:]}"
-                                        else:
-                                            formatted = "-"
-                                            
-                                        agent_str = "Não Identificado"
-                                        if pd.notna(agent):
-                                            agent_str = str(agent).strip()
-                                            if agent_str.lower() in ("nan", "none", ""):
-                                                agent_str = "Não Identificado"
-                                                
-                                        return pd.Series([agent_str, formatted])
-                                        
-                                    df_tx_show[['Origem/Destino', 'CNPJ/CPF']] = df_tx.apply(get_agent_and_doc, axis=1)
-                                    df_tx_show['Valor'] = df_tx['valor_gestao_financeira'].apply(format_currency)
-                                    df_tx_show = df_tx_show.sort_values(by='Data', ascending=False)
-                                    
-                                    st.dataframe(
-                                        df_tx_show[['Data', 'Operação', 'Descrição', 'Origem/Destino', 'CNPJ/CPF', 'Valor']],
-                                        width="stretch",
-                                        hide_index=True
-                                    )
-                                    
-                                    # --- GRÁFICO DE BARRAS HORIZONTAIS: DÉBITOS DESTINADOS A PJs ---
-                                    def is_pj_debit(row):
-                                        if row.get('tipo_operacao_gestao_financeira') != 'D':
-                                            return False
-                                        doc = row.get('doc_favorecido_gestao_financeira')
-                                        doc_str = ""
-                                        if pd.notna(doc):
-                                            doc_str = "".join([c for c in str(doc).split('.')[0] if c.isdigit()])
-                                            # Tratar supressão de zeros à esquerda para CNPJ
-                                            if 11 < len(doc_str) <= 14:
-                                                doc_str = doc_str.zfill(14)
-                                                
-                                        tipo = row.get('tipo_favorecido_gestao_financeira')
-                                        is_pj = (str(tipo) in ('2', '2.0')) or (len(doc_str) == 14)
-                                        
-                                        fav = row.get('nome_favorecido_gestao_financeira')
-                                        has_fav = pd.notna(fav) and str(fav).strip() != "" and str(fav).strip().lower() not in ("nan", "none")
-                                        return is_pj and has_fav
-
-                                    df_pj_debits = df_tx[df_tx.apply(is_pj_debit, axis=1)].copy()
-                                    
-                                    if not df_pj_debits.empty:
-                                        # Agrupar por nome do favorecido PJ (padronizado)
-                                        df_chart_data = df_pj_debits.groupby('nome_favorecido_gestao_financeira')['valor_gestao_financeira'].sum().reset_index()
-                                        df_chart_data = df_chart_data.sort_values(by='valor_gestao_financeira', ascending=True) # Ascending True para o Plotly ordenar decrescente com o maior no topo
-                                        
-                                        st.markdown("<br>", unsafe_allow_html=True)
-                                        st.markdown("###### 📊 Concentração de Débitos por Pessoa Jurídica (Ordem Decrescente)")
-                                        
-                                        fig_pj = px.bar(
-                                            df_chart_data,
-                                            x='valor_gestao_financeira',
-                                            y='nome_favorecido_gestao_financeira',
-                                            orientation='h',
-                                            labels={
-                                                'valor_gestao_financeira': 'Valor Total Pago (R$)',
-                                                'nome_favorecido_gestao_financeira': 'Pessoa Jurídica Beneficiária'
-                                            },
-                                            color_discrete_sequence=['#ef4444'] # Cor vermelha elegante para saídas/débitos
-                                        )
-                                        
-                                        fig_pj.update_layout(
-                                            margin=dict(l=20, r=20, t=10, b=10),
-                                            height=min(450, max(220, 45 * len(df_chart_data))),
-                                            paper_bgcolor='rgba(0,0,0,0)',
-                                            plot_bgcolor='rgba(0,0,0,0)',
-                                            xaxis=dict(gridcolor='#e2e8f0', title='Valor Total Pago (R$)'),
-                                            yaxis=dict(title=None, categoryorder='total ascending')
-                                        )
-                                        
-                                        st.plotly_chart(fig_pj, width="stretch")
-                                else:
-                                    st.info("ℹ️ Nenhuma movimentação financeira encontrada ou registrada para esta conta corrente.")
-                            
-                            # --- SEÇÃO DE LICITAÇÕES SIMILARES POR OBJETIVOS ---
-                            st.markdown("<br>", unsafe_allow_html=True)
-                            st.markdown("##### 🔍 Licitações Municipais Associadas (Por Similaridade de Objeto)")
-                            
-                            df_muni_lic = df_lic[df_lic['municipio_norm'] == muni_norm].copy()
-                            
-                            if df_muni_lic.empty:
-                                st.info("Nenhuma licitação de obra cadastrada no TCE para este município.")
-                            else:
-                                col_s1, col_s2 = st.columns([4, 6])
-                                with col_s1:
-                                    threshold = st.slider(
-                                        "Sensibilidade de Comparação (similaridade mínima):",
-                                        min_value=10, max_value=90, value=25, step=5,
-                                        format="%d%%",
-                                        key=f"slider_sim_{muni_norm}_{selected_code}"
-                                    )
-                                
-                                # Função para calcular a similaridade combinada contra API e Empenhos vinculados
-                                def get_combined_sim(row):
-                                    best_score = 0.0
-                                    best_src = "Nenhum"
-                                    
-                                    # 1. Comparar com o objeto da API do governo (Transferegov)
-                                    if api_data and 'objeto' in api_data and api_data['objeto']:
-                                        score_api = calculate_similarity_jaccard(api_data['objeto'], row['Objeto Licitação'])
-                                        if score_api > best_score:
-                                            best_score = score_api
-                                            best_src = "Objeto Pactuado (API)"
-                                            
-                                    # 2. Comparar com as descrições dos empenhos vinculados
-                                    linked_empenhos = muni_tce_df[muni_tce_df['codigo_emenda'] == selected_code]
-                                    if not linked_empenhos.empty:
-                                        for _, emp in linked_empenhos.iterrows():
-                                            score_emp = calculate_similarity_jaccard(emp['historico'], row['Objeto Licitação'])
-                                            if score_emp > best_score:
-                                                best_score = score_emp
-                                                best_src = f"Empenho Nº {emp['num_empenho']}/{emp['ano_empenho']}"
-                                                
-                                    return pd.Series([best_score, best_src])
-                                
-                                # Aplicar o cálculo combinado
-                                df_muni_lic[['Similaridade', 'Origem']] = df_muni_lic.apply(get_combined_sim, axis=1)
-                                df_matches = df_muni_lic[df_muni_lic['Similaridade'] >= (threshold / 100.0)].copy()
-                                
-                                if df_matches.empty:
-                                    st.warning(f"Nenhuma licitação encontrada com similaridade de objeto superior a {threshold}%. Experimente reduzir a sensibilidade no slider.")
-                                else:
-                                    df_matches = df_matches.sort_values(by='Similaridade', ascending=False)
-                                    df_matches_show = df_matches[['Número do Edital', 'Modalidade', 'Objeto Licitação', 
-                                                                  'Valor previsto licitação', 'Situação do Processo Licitatório', 'Similaridade', 'Origem']].copy()
-                                    
-                                    df_matches_show['Similaridade (%)'] = (df_matches_show['Similaridade'] * 100).apply(lambda x: f"{x:.1f}%")
-                                    df_matches_show['Valor Previsto'] = df_matches_show['Valor previsto licitação'].apply(format_currency)
-                                    
-                                    df_matches_show = df_matches_show.drop(columns=['Similaridade', 'Valor previsto licitação'])
-                                    df_matches_show.columns = ['Edital', 'Modalidade', 'Objeto da Licitação', 'Situação', 'Origem da Similaridade', 'Similaridade (%)', 'Valor Previsto']
-                                    df_matches_show = df_matches_show[['Edital', 'Modalidade', 'Objeto da Licitação', 'Valor Previsto', 'Situação', 'Similaridade (%)', 'Origem da Similaridade']]
-                                    
-                                    st.dataframe(df_matches_show, width="stretch", hide_index=True)
-                        else:
-                            st.info("ℹ️ Nenhum dado retornado pela API Transferegov para esta emenda.")
                     except Exception as e:
-                        st.warning(f"⚠️ Não foi possível consultar a API do Transferegov: {e}")
+                        pass
+                    
+                    # Combinar dados (API tem prioridade para valores dinâmicos)
+                    objeto = api_data.get('objeto') if (api_data and api_data.get('objeto')) else (offline_objeto if offline_objeto else "Objeto não informado no cadastro offline.")
+                    area_politica = api_data.get('area_politica', 'Área pública não disponível offline') if api_data else 'Área pública não disponível offline'
+                    programa = api_data.get('programa', 'Programa não disponível offline') if api_data else 'Programa não disponível offline'
+                    
+                    banco_codigo = api_data.get('banco_codigo') if (api_data and api_data.get('banco_codigo')) else offline_banco_codigo
+                    banco_nome = api_data.get('banco_nome') if (api_data and api_data.get('banco_nome')) else offline_banco_nome
+                    
+                    if api_data:
+                        agencia_completa = f"{api_data['agencia']}-{api_data['agencia_dv']}" if api_data.get('agencia_dv') else api_data['agencia']
+                        agencia_nome = f" ({api_data['agencia_nome']})" if api_data.get('agencia_nome') else ""
+                        agencia_display = f"{agencia_completa}{agencia_nome}"
+                        conta_display = f"C/C: {api_data['conta']}-{api_data['conta_dv']}"
+                        
+                        agencia_para_extrato = api_data['agencia']
+                        conta_para_extrato = api_data['conta']
+                        
+                        situacao = api_data.get('situacao', 'N/A')
+                        id_plano_acao = api_data.get('id_plano_acao', offline_plano_acao)
+                        conta_especifica = api_data.get('conta_especifica', 'Não Identificado')
+                    else:
+                        agencia_display = offline_agencia if offline_agencia else "Não informada"
+                        conta_display = f"C/C: {offline_conta}" if offline_conta else "C/C: Não informada"
+                        
+                        agencia_para_extrato = offline_agencia_sem_dv
+                        conta_para_extrato = offline_conta_sem_dv
+                        
+                        situacao = "Disponível apenas online"
+                        id_plano_acao = offline_plano_acao
+                        conta_especifica = "Não Identificado"
+                        
+                    col_api1, col_api2 = st.columns([6, 4])
+                    
+                    with col_api1:
+                        # Caixa de destaque para o Objeto Pactuado
+                        st.markdown(f"""
+                        <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
+                            <div style="font-weight: 700; color: #1e40af; margin-bottom: 6px; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.5px;">🎯 Objeto Pactuado</div>
+                            <div style="font-size: 1rem; color: #1e3a8a; font-style: italic; line-height: 1.5;">
+                                "{objeto}"
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Detalhes do Plano
+                        st.markdown(f"""
+                        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 16px; font-size: 0.9rem; color: #475569; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
+                            <div style="margin-bottom: 6px;"><strong>Área de Política Pública:</strong> {area_politica}</div>
+                            <div><strong>Programa Orçamentário:</strong> {programa}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        if api_data is None:
+                            st.caption("⚠️ Não foi possível obter dados em tempo real da API do Transferegov. Exibindo dados offline.")
+                        
+                    with col_api2:
+                        # Cartão bancário estilizado
+                        if conta_especifica == "Sim":
+                            especifica_badge = '<span style="background-color: #d1fae5; color: #065f46; padding: 4px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; border: 1px solid #a7f3d0;">CONTA ESPECÍFICA</span>'
+                        elif conta_especifica == "Não":
+                            especifica_badge = '<span style="background-color: #ffedd5; color: #9a3412; padding: 4px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; border: 1px solid #fed7aa;">CONTA COMUM</span>'
+                        else:
+                            especifica_badge = '<span style="background-color: #f1f5f9; color: #475569; padding: 4px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; border: 1px solid #cbd5e1;">CADASTRADA</span>'
+                        
+                        st.markdown(f"""
+                        <div style="
+                            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+                            color: #f8fafc;
+                            border-radius: 16px;
+                            padding: 20px;
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+                            border: 1px solid #475569;
+                        ">
+                            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #475569; padding-bottom: 10px; margin-bottom: 12px;">
+                                <span style="font-weight: 700; font-size: 0.9rem; letter-spacing: 0.5px; color: #94a3b8;">💳 CONTAS DE EXECUÇÃO</span>
+                                {especifica_badge}
+                            </div>
+                            <div style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 8px;">
+                                <strong>Banco:</strong> {banco_codigo} - {banco_nome}
+                            </div>
+                            <div style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 8px;">
+                                <strong>Agência:</strong> {agencia_display}
+                            </div>
+                            <div style="font-size: 1.15rem; font-weight: 700; margin-top: 12px; font-family: monospace; letter-spacing: 1px; color: #60a5fa;">
+                                {conta_display}
+                            </div>
+                            <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 15px; text-align: right;">
+                                Situação do Plano: <b>{situacao}</b> {f"(ID: {id_plano_acao})" if id_plano_acao else ""}
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                    
+                    # --- SEÇÃO DE LANÇAMENTOS FINANCEIROS (EXTRATO) ---
+                    pjs_paid_cnpjs = set()
+                    fin_data = None
+                    if banco_codigo and agencia_para_extrato and conta_para_extrato:
+                        with st.spinner("Carregando lançamentos financeiros..."):
+                            fin_data = fetch_financial_transfers(
+                                selected_cnpj,
+                                banco_codigo,
+                                agencia_para_extrato,
+                                conta_para_extrato
+                            )
+                            
+                    if fin_data and 'data' in fin_data and fin_data['data']:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        st.markdown("##### 💸 Movimentações Financeiras da Conta Corrente (Transferegov API)")
+                        
+                        tx_list = fin_data['data']
+                        
+                        # Calcular resumos
+                        total_creditos = sum([tx['valor_gestao_financeira'] for tx in tx_list if tx['tipo_operacao_gestao_financeira'] == 'C'])
+                        total_debitos = sum([tx['valor_gestao_financeira'] for tx in tx_list if tx['tipo_operacao_gestao_financeira'] == 'D'])
+                        saldo_final = total_creditos - total_debitos
+                        
+                        # Renderizar KPIs consolidados
+                        col_k1, col_k2, col_k3 = st.columns(3)
+                        with col_k1:
+                            st.markdown(f"""
+                            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
+                                <div style="font-size: 0.72rem; color: #15803d; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">Total Recebido (Créditos)</div>
+                                <div style="font-size: 1.2rem; font-weight: 700; color: #166534; margin-top: 5px;">{format_currency(total_creditos)}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        with col_k2:
+                            st.markdown(f"""
+                            <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
+                                <div style="font-size: 0.72rem; color: #b91c1c; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">Total Retirado (Débitos)</div>
+                                <div style="font-size: 1.2rem; font-weight: 700; color: #991b1b; margin-top: 5px;">{format_currency(total_debitos)}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        with col_k3:
+                            bg_color = "#f0fdfa" if saldo_final >= 0 else "#fff7ed"
+                            border_color = "#99f6e4" if saldo_final >= 0 else "#ffedd5"
+                            text_color = "#115e59" if saldo_final >= 0 else "#9a3412"
+                            st.markdown(f"""
+                            <div style="background-color: {bg_color}; border: 1px solid {border_color}; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
+                                <div style="font-size: 0.72rem; color: {text_color}; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">Saldo da Conta</div>
+                                <div style="font-size: 1.2rem; font-weight: 700; color: {text_color}; margin-top: 5px;">{format_currency(saldo_final)}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        
+                        # Criar dataframe para exibição
+                        df_tx = pd.DataFrame(tx_list)
+                        df_tx_show = pd.DataFrame()
+                        
+                        df_tx_show['Data'] = pd.to_datetime(df_tx['data_lancamento_gestao_financeira']).dt.strftime('%d/%m/%Y')
+                        df_tx_show['Operação'] = df_tx['tipo_operacao_gestao_financeira'].apply(
+                            lambda x: "🟢 Crédito" if x == 'C' else "🔴 Débito"
+                        )
+                        df_tx_show['Descrição'] = df_tx['descricao_gestao_financeira'].fillna("Lançamento")
+                        
+                        def get_agent_and_doc(row):
+                            if row['tipo_operacao_gestao_financeira'] == 'C':
+                                agent = row['nome_depositante_gestao_financeira']
+                                doc = row['doc_depositante_gestao_financeira']
+                            else:
+                                agent = row['nome_favorecido_gestao_financeira']
+                                doc = row['doc_favorecido_gestao_financeira']
+                            
+                            # Obter apenas dígitos numéricos para o documento
+                            doc_str = ""
+                            if pd.notna(doc):
+                                doc_str = "".join([c for c in str(doc).split('.')[0] if c.isdigit()])
+                                
+                            # Padronizar CNPJ (14 dígitos) e CPF (11 dígitos) com preenchimento de zeros à esquerda se suprimidos
+                            if 11 < len(doc_str) <= 14:
+                                doc_str = doc_str.zfill(14)
+                                formatted = f"{doc_str[:2]}.{doc_str[2:5]}.{doc_str[5:8]}/{doc_str[8:12]}-{doc_str[12:]}"
+                            elif 0 < len(doc_str) <= 11:
+                                doc_str = doc_str.zfill(11)
+                                formatted = f"{doc_str[:3]}.{doc_str[3:6]}.{doc_str[6:9]}-{doc_str[9:]}"
+                            else:
+                                formatted = "-"
+                                
+                            agent_str = "Não Identificado"
+                            if pd.notna(agent):
+                                agent_str = str(agent).strip()
+                                if agent_str.lower() in ("nan", "none", ""):
+                                    agent_str = "Não Identificado"
+                                    
+                            return pd.Series([agent_str, formatted])
+                            
+                        df_tx_show[['Origem/Destino', 'CNPJ/CPF']] = df_tx.apply(get_agent_and_doc, axis=1)
+                        df_tx_show['Valor'] = df_tx['valor_gestao_financeira'].apply(format_currency)
+                        df_tx_show = df_tx_show.sort_values(by='Data', ascending=False)
+                        
+                        st.dataframe(
+                            df_tx_show[['Data', 'Operação', 'Descrição', 'Origem/Destino', 'CNPJ/CPF', 'Valor']],
+                            width="stretch",
+                            hide_index=True
+                        )
+                        
+                        # --- GRÁFICO DE BARRAS HORIZONTAIS: DÉBITOS DESTINADOS A PJs ---
+                        def is_pj_debit(row):
+                            if row.get('tipo_operacao_gestao_financeira') != 'D':
+                                return False
+                            doc = row.get('doc_favorecido_gestao_financeira')
+                            doc_str = ""
+                            if pd.notna(doc):
+                                doc_str = "".join([c for c in str(doc).split('.')[0] if c.isdigit()])
+                                # Tratar supressão de zeros à esquerda para CNPJ
+                                if 11 < len(doc_str) <= 14:
+                                    doc_str = doc_str.zfill(14)
+                                    
+                            tipo = row.get('tipo_favorecido_gestao_financeira')
+                            is_pj = (str(tipo) in ('2', '2.0')) or (len(doc_str) == 14)
+                            
+                            fav = row.get('nome_favorecido_gestao_financeira')
+                            has_fav = pd.notna(fav) and str(fav).strip() != "" and str(fav).strip().lower() not in ("nan", "none")
+                            return is_pj and has_fav
+
+                        df_pj_debits = df_tx[df_tx.apply(is_pj_debit, axis=1)].copy()
+                        for doc in df_pj_debits['doc_favorecido_gestao_financeira'].dropna():
+                            doc_str = "".join([c for c in str(doc).split('.')[0] if c.isdigit()])
+                            if len(doc_str) > 11:
+                                pjs_paid_cnpjs.add(doc_str.zfill(14))
+                            elif len(doc_str) > 0:
+                                pjs_paid_cnpjs.add(doc_str.zfill(11))
+                        
+                        if not df_pj_debits.empty:
+                            # Agrupar por nome do favorecido PJ (padronizado)
+                            df_chart_data = df_pj_debits.groupby('nome_favorecido_gestao_financeira')['valor_gestao_financeira'].sum().reset_index()
+                            df_chart_data = df_chart_data.sort_values(by='valor_gestao_financeira', ascending=True) # Ascending True para o Plotly ordenar decrescente com o maior no topo
+                            
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            st.markdown("###### 📊 Concentração de Débitos por Pessoa Jurídica (Ordem Decrescente)")
+                            
+                            fig_pj = px.bar(
+                                df_chart_data,
+                                x='valor_gestao_financeira',
+                                y='nome_favorecido_gestao_financeira',
+                                orientation='h',
+                                labels={
+                                    'valor_gestao_financeira': 'Valor Total Pago (R$)',
+                                    'nome_favorecido_gestao_financeira': 'Pessoa Jurídica Beneficiária'
+                                },
+                                color_discrete_sequence=['#ef4444'] # Cor vermelha elegante para saídas/débitos
+                            )
+                            
+                            fig_pj.update_layout(
+                                margin=dict(l=20, r=20, t=10, b=10),
+                                height=min(450, max(220, 45 * len(df_chart_data))),
+                                paper_bgcolor='rgba(0,0,0,0)',
+                                plot_bgcolor='rgba(0,0,0,0)',
+                                xaxis=dict(gridcolor='#e2e8f0', title='Valor Total Pago (R$)'),
+                                yaxis=dict(title=None, categoryorder='total ascending')
+                            )
+                            
+                            st.plotly_chart(fig_pj, width="stretch")
+                            
+                    # --- SEÇÃO DE LICITAÇÕES SIMILARES POR OBJETIVOS ---
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.markdown("##### 🔍 Licitações Municipais Associadas (Por Similaridade de Objeto)")
+                    
+                    df_muni_lic = df_lic[df_lic['municipio_norm'] == muni_norm].copy()
+                    
+                    if df_muni_lic.empty:
+                        st.info("Nenhuma licitação de obra cadastrada no TCE para este município.")
+                    else:
+                        col_s1, col_s2 = st.columns([4, 6])
+                        with col_s1:
+                            threshold = st.slider(
+                                "Sensibilidade de Comparação (similaridade mínima):",
+                                min_value=10, max_value=90, value=25, step=5,
+                                format="%d%%",
+                                key=f"slider_sim_{muni_norm}_{selected_code}"
+                            )
+                        
+                        def extract_num_year(text):
+                            if not isinstance(text, str):
+                                return set()
+                            matches = re.findall(r'(\d+)[/-](\d{4})', text)
+                            res = set()
+                            for num, year in matches:
+                                res.add((int(num), int(year)))
+                            return res
+
+                        # Função para verificar se a empresa contratada da licitação recebeu pagamentos da emenda
+                        def check_paid_contractor(lic_row):
+                            edital_pairs = extract_num_year(lic_row['Número do Edital'])
+                            if not edital_pairs or not pjs_paid_cnpjs:
+                                return False, ""
+                            
+                            for _, emp in muni_tce_df.iterrows():
+                                emp_pairs = extract_num_year(emp['nr_licitacao'])
+                                if edital_pairs.intersection(emp_pairs):
+                                    emp_cnpj = "".join([c for c in str(emp['cnpj_cpf']).split('.')[0] if c.isdigit()])
+                                    emp_cnpj_padded = emp_cnpj.zfill(14) if len(emp_cnpj) > 11 else emp_cnpj.zfill(11)
+                                    if emp_cnpj_padded in pjs_paid_cnpjs:
+                                        # Formatar CNPJ/CPF bonitinho
+                                        if len(emp_cnpj_padded) == 14:
+                                            cnpj_fmt = f"{emp_cnpj_padded[:2]}.{emp_cnpj_padded[2:5]}.{emp_cnpj_padded[5:8]}/{emp_cnpj_padded[8:12]}-{emp_cnpj_padded[12:]}"
+                                        else:
+                                            cnpj_fmt = f"{emp_cnpj_padded[:3]}.{emp_cnpj_padded[3:6]}.{emp_cnpj_padded[6:9]}-{emp_cnpj_padded[9:]}"
+                                        return True, f"Empresa Beneficiária de Pagamento: {emp['credor']} (CNPJ/CPF: {cnpj_fmt})"
+                            return False, ""
+
+                        # Aplicar cálculo de similaridade e verificação de empresa contratada paga
+                        sim_data = []
+                        for idx, row in df_muni_lic.iterrows():
+                            # 1. Calcular similaridade por objeto
+                            best_score = 0.0
+                            best_src = "Nenhum"
+                            
+                            # Comparar com objeto da emenda
+                            if objeto and objeto != "Objeto não informado no cadastro offline.":
+                                score_api = calculate_similarity_jaccard(objeto, row['Objeto Licitação'])
+                                if score_api > best_score:
+                                    best_score = score_api
+                                    best_src = "Objeto Pactuado (API/CSV)"
+                                    
+                            # Comparar com empenhos
+                            linked_empenhos = muni_tce_df[muni_tce_df['codigo_emenda'] == selected_code]
+                            if not linked_empenhos.empty:
+                                for _, emp in linked_empenhos.iterrows():
+                                    score_emp = calculate_similarity_jaccard(emp['historico'], row['Objeto Licitação'])
+                                    if score_emp > best_score:
+                                        best_score = score_emp
+                                        best_src = f"Empenho Nº {emp['num_empenho']}/{emp['ano_empenho']}"
+                            
+                            # 2. Verificar se a empresa contratada recebeu pagamentos
+                            is_paid, paid_src = check_paid_contractor(row)
+                            if is_paid:
+                                best_score = max(best_score, 1.0)  # Força 100% de similaridade/associação para ficar no topo
+                                best_src = paid_src
+                                
+                            sim_data.append((best_score, best_src, is_paid))
+                            
+                        # Desempacotar resultados
+                        df_muni_lic['Similaridade'] = [s[0] for s in sim_data]
+                        df_muni_lic['Origem'] = [s[1] for s in sim_data]
+                        df_muni_lic['Forçado'] = [s[2] for s in sim_data]
+                        
+                        # Filtro por threshold ou forçados por pagamento
+                        df_matches = df_muni_lic[(df_muni_lic['Similaridade'] >= (threshold / 100.0)) | df_muni_lic['Forçado']].copy()
+                        
+                        if df_matches.empty:
+                            st.warning(f"Nenhuma licitação encontrada com similaridade de objeto superior a {threshold}%. Experimente reduzir a sensibilidade no slider.")
+                        else:
+                            df_matches = df_matches.sort_values(by='Similaridade', ascending=False)
+                            df_matches_show = df_matches[['Número do Edital', 'Modalidade', 'Objeto Licitação', 
+                                                          'Valor previsto licitação', 'Situação do Processo Licitatório', 'Similaridade', 'Origem']].copy()
+                            
+                            df_matches_show['Similaridade (%)'] = (df_matches_show['Similaridade'] * 100).apply(lambda x: f"{x:.1f}%")
+                            df_matches_show['Valor Previsto'] = df_matches_show['Valor previsto licitação'].apply(format_currency)
+                            
+                            df_matches_show = df_matches_show.drop(columns=['Similaridade', 'Valor previsto licitação'])
+                            df_matches_show.columns = ['Edital', 'Modalidade', 'Objeto da Licitação', 'Situação', 'Origem da Similaridade', 'Similaridade (%)', 'Valor Previsto']
+                            df_matches_show = df_matches_show[['Edital', 'Modalidade', 'Objeto da Licitação', 'Valor Previsto', 'Situação', 'Similaridade (%)', 'Origem da Similaridade']]
+                            
+                            st.dataframe(df_matches_show, width="stretch", hide_index=True)
                 else:
                     st.info("💡 Selecione uma linha na tabela acima para consultar o objeto pactuado e dados de conta bancária desta emenda na API do Transferegov.")
                     

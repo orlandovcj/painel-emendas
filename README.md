@@ -79,7 +79,7 @@ Focada na pesquisa textual e detalhamento individual de empenhos.
 ```
 painel-emendas/
 ├── dados/
-│   ├── emendas-por-favorecido.csv                                      # Cadastro de emendas RP6 recebidas
+│   ├── emendas_sc.csv                                                  # Cadastro de emendas RP6 recebidas com dados bancários
 │   ├── TCE_empenhos_obras_mat_permanentes_tranferencias_especiais.xlsx # Empenhos de obras e materiais permanentes de SC
 │   ├── TCE_licitacoes_obras.xlsx                                       # Cadastro de licitações de obras de SC
 │   └── municipios_sc.csv                                               # Coordenadas geográficas dos municípios de SC

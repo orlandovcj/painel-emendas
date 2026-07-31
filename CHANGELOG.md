@@ -6,6 +6,23 @@ O formato é baseado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
+## [1.5.0] - 2026-07-31
+
+### Adicionado
+- Integração de dados bancários offline a partir da nova fonte de dados `emendas_sc.csv`.
+- Resiliência offline para exibição imediata de banco, agência e conta corrente das emendas selecionadas sem a necessidade de requisições de rede preliminares.
+- Suporte para anos históricos adicionais (2020 e 2021) no painel, expandindo o volume total de emendas cadastradas de 177 para 212 emendas únicas (3.611 registros).
+- Integração do motor de similaridade de licitações com o objeto pactuado local das emendas (offline) como fallback quando a API do Transferegov estiver lenta ou indisponível.
+- Auditoria cruzada na listagem de licitações associadas: licitações municipais cujos contratados constam como beneficiários de retiradas/débitos na conta bancária da emenda são forçadamente listadas (passando por cima do limiar de similaridade de texto) e marcadas com a origem "Empresa Beneficiária de Pagamento" e seus dados de CNPJ/CPF.
+
+### Modificado
+- Substituição da fonte de dados local das emendas de `emendas-por-favorecido.csv` para `emendas_sc.csv`.
+- Carregamento automático e otimizado na consulta de extratos (lançamentos financeiros): a consulta do extrato é realizada automaticamente ao selecionar uma emenda na tabela, eliminando a necessidade do clique em um botão manual. A consulta é feita diretamente a partir dos dados bancários do CSV local, reduzindo a latência e dispensando a necessidade das consultas prévias de busca de plano e executor do Transferegov.
+- Padronização e higienização dos campos numéricos bancários e códigos parlamentares durante a importação em `load_data()`.
+- Atualização da documentação no `README.md` refletindo a nova fonte de dados de emendas e seus campos bancários locais.
+
+---
+
 ## [1.4.0] - 2026-07-26
 
 ### Adicionado
