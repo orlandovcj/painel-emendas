@@ -291,7 +291,8 @@ EMENDA_PATTERN = re.compile(r'\b(202\d{9})\b')
 # Função para carregar e cachear os dados
 @st.cache_data(show_spinner="Carregando e processando os dados...")
 def load_data():
-    base_dir = r"c:\Users\Dell\Documents\GitHub\painel-emendas\dados"
+    # base_dir = r"c:\Users\Dell\Documents\GitHub\painel-emendas\dados"
+    base_dir = os.path.join(os.path.dirname(__file__), "dados")
     
     # Helper to clean bank account/code fields from CSV (floats to pure numeric strings)
     def clean_csv_int_str(val):
