@@ -1,8 +1,8 @@
 # Painel Interativo de Emendas Parlamentares, Obras e Materiais Permanentes em Santa Catarina (Emendas PIX)
 
-Este é um painel de controle interativo e analítico premium, desenvolvido em Python com a biblioteca **Streamlit**, projetado para monitorar e fiscalizar a destinação e a execução física/financeira de recursos públicos federais provenientes de **Transferências Especiais da União (RP6 / Emendas PIX)** destinadas aos municípios do estado de Santa Catarina.
+Este é um painel interativo e analítico, desenvolvido em Python com a biblioteca **Streamlit**, projetado para monitorar e ajudar na fiscalização da destinação e da execução física/financeira de recursos públicos federais provenientes de **Transferências Especiais da União (RP6 / Emendas PIX)** destinadas aos municípios do estado de Santa Catarina.
 
-A aplicação cruza dados de repasses orçamentários, históricos de empenhos municipais para obras e materiais permanentes, licitações municipais enviadas ao tribunal, e consultas em tempo real com apuração de extratos e contas correntes na base oficial de dados do governo federal (Transferegov).
+A aplicação cruza dados de repasses orçamentários, históricos de empenhos municipais para obras e materiais permanentes, licitações municipais enviadas ao Tribunal de Contas do Estado de Santa Catarina (TCE-SC), e consultas em tempo real com apuração de extratos e contas correntes na base oficial de dados do governo federal (Transferegov).
 
 ---
 
@@ -21,12 +21,12 @@ O painel visa aprimorar a transparência pública, permitindo que cidadãos, ges
 
 1. **Mapa de Distribuição Geográfica de Recursos**:
    Apresentação espacial de Santa Catarina com pontos georreferenciados para cada município beneficiário. O tamanho do círculo indica o volume financeiro recebido e a cor representa a eficiência de pagamento orçamentário.
-2. **Filtro Avançado de Período (Multiselect)**:
+2. **Filtro de Período (Multiselect)**:
    Barra lateral de controles com suporte para filtragem múltipla de anos (2022 a 2026), recalculando instantaneamente todos os gráficos, resumos estaduais, mapas e tabelas da interface.
 3. **Indicador de Última Atualização**:
    Rastreamento dinâmico das planilhas de dados locais para exibir a data da última transação registrada em cada base (Emendas, Empenhos do TCE-SC e Licitações).
 4. **Busca e Consulta em Tempo Real (Transferegov API)**:
-   - Consulta viva pelo código da emenda e CNPJ do beneficiário municipal para retornar o plano de trabalho e objeto pactuado.
+   - Consulta pelo código da emenda e CNPJ do beneficiário municipal para retornar o plano de trabalho e objeto pactuado.
    - Consulta sequencial e paginada ao extrato financeiro da conta corrente oficial da emenda, acumulando todas as páginas de transações.
    - Padronização de documentos (CNPJ/CPF) com zeros à esquerda e formatação visual na listagem de movimentações.
 5. **Gráfico de Concentração de Gastos (PJs)**:
@@ -52,7 +52,7 @@ Focada nas fontes de recursos.
 
 Focada na execução física e orçamentária dos contratos municipais.
 
-- Apresenta uma tabela com os empenhos emitidos pela prefeitura que estão vinculados à emenda selecionada.
+- Apresenta uma tabela com os empenhos emitidos pela prefeitura que estão vinculados à recursos de transferências especiais da União.
 - Exibe as informações desmembradas de forma estruturada: número da licitação local correspondente, código do contrato, datas, credor fornecedor e valores de empenho, liquidação e pagamento.
 - Inclui a coluna com a descrição textual do histórico do empenho municipal para maior auditoria.
 
@@ -138,5 +138,5 @@ O painel será aberto automaticamente no endereço padrão: [http://localhost:85
 ## ✍️ Autoria e Contato
 
 - Desenvolvido por Orlando Castro.
-- Parceria de programação assistida por Inteligência Artificial (Antigravity AI, Google DeepMind).
+- Parceria de programação assistida por Inteligências Artificiais (Antigravity AI, Google DeepMind e Chat-GPT).
 - Licenciado sob a Licença MIT. Para dúvidas ou sugestões de melhorias, entre em contato via canais do repositório.
