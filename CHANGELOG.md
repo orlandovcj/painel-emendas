@@ -6,6 +6,16 @@ O formato é baseado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
+## [1.6.0] - 2026-08-10
+
+### Adicionado
+- Integração da base de pagamentos a pessoas jurídicas a partir do arquivo local `pagamentos_pj.csv`.
+- Nova seção **Pagamentos às empresas (Extratos)** na aba **🏢 Empresas Contratadas**, contendo uma tabela detalhada com CNPJ, Razão Social e Valor total pago agrupado para o município filtrado.
+- Gráfico de barras horizontais na aba **🏢 Empresas Contratadas** apresentando o ranking das **Top 5 empresas** beneficiárias de pagamentos (com base em `pagamentos_pj.csv`).
+- Filtro anual para a base de pagamentos baseado nos primeiros 4 dígitos do `Código da Emenda`.
+
+---
+
 ## [1.5.0] - 2026-07-31
 
 ### Adicionado

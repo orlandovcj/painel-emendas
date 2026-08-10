@@ -62,6 +62,7 @@ Focada nas construtoras e prestadoras de serviços terceirizadas.
 
 - Exibe o ranking consolidado das empresas fornecedoras que receberam recursos no município selecionado.
 - Detalha a quantidade de empenhos atribuídos a cada empresa, o total empenhado, liquidado e o efetivamente pago em conta corrente.
+- Apresenta a seção **Pagamentos às empresas (Extratos)**, contendo uma tabela com o CNPJ, Razão Social e Valor total pagos a partir da base oficial `pagamentos_pj.csv` para o município selecionado, além de um gráfico de barras com o ranking das **Top 5 empresas** beneficiárias de pagamentos.
 
 ### 4. 📝 Detalhes e Histórico Textual
 
@@ -80,6 +81,7 @@ Focada na pesquisa textual e detalhamento individual de empenhos.
 painel-emendas/
 ├── dados/
 │   ├── emendas_sc.csv                                                  # Cadastro de emendas RP6 recebidas com dados bancários
+│   ├── pagamentos_pj.csv                                               # Cadastro de pagamentos efetuados a pessoas jurídicas (extratos)
 │   ├── TCE_empenhos_obras_mat_permanentes_tranferencias_especiais.xlsx # Empenhos de obras e materiais permanentes de SC
 │   ├── TCE_licitacoes_obras.xlsx                                       # Cadastro de licitações de obras de SC
 │   └── municipios_sc.csv                                               # Coordenadas geográficas dos municípios de SC
@@ -129,6 +131,7 @@ O painel será aberto automaticamente no endereço padrão: [http://localhost:85
 ## 📊 Fontes de Dados
 
 - **Emendas Parlamentares RP6**: Portal de Dados Abertos do Transferegov (Ministério da Gestão e da Inovação em Serviços Públicos).
+- **Pagamentos a Pessoas Jurídicas (Extratos)**: Base consolidada de pagamentos de transferências especiais da União a credores PJ (`pagamentos_pj.csv`).
 - **Empenhos de Obras e Materiais Permanentes (TCE-SC)**: Planilha `TCE_empenhos_obras_mat_permanentes_tranferencias_especiais.xlsx` extraída do **Portal Farol do TCE-SC**. Contém todos os empenhos dos municípios catarinenses que tiveram como fonte de recursos as Transferências Especiais da União (Emendas PIX) e foram aplicados em obras ou materiais permanentes.
 - **Licitações Municipais de Santa Catarina**: Portal de Contas Públicas do Tribunal de Contas do Estado de Santa Catarina (TCE-SC).
 - **Coordenadas de Municípios**: Diretoria de Geociências do Instituto Brasileiro de Geografia e Estatística (IBGE).

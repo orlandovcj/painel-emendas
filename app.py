@@ -401,7 +401,19 @@ def load_data():
                            'Objeto Licitação', 'Valor previsto licitação', 
                            'Situação do Processo Licitatório', 'ano_licitacao']].copy()
     
-    # 5. Vincular Empenhos a Emendas via Regex
+    # 5. Carregar CSV de Pagamentos PJ (pagamentos_pj.csv)
+    df_pag = pd.read_csv(os.path.join(base_dir, "pagamentos_pj.csv"), sep=";")
+    df_pag['municipio_orig'] = df_pag['Nome do Município'].astype(str).apply(clean_muni_name)
+    df_pag['municipio_norm'] = df_pag['municipio_orig'].apply(normalize_name).replace(MUNI_CORRECTIONS)
+    df_pag['valor_pago'] = df_pag['Valor Total Pago'].astype(float)
+    df_pag['cnpj_beneficiario'] = df_pag['CNPJ do beneficiário do pagamento'].astype(str)
+    
+    df_pag_clean = df_pag[[
+        'Nome do Município', 'municipio_norm', 'Código da Emenda', 'Autor da Emenda', 
+        'cnpj_beneficiario', 'Razão Social', 'valor_pago'
+    ]].copy()
+    
+    # 6. Vincular Empenhos a Emendas via Regex
     # Criamos um conjunto de códigos de emendas válidos por município
     emendas_por_muni = df_emendas_clean.groupby('municipio_norm')['codigo_emenda'].apply(set).to_dict()
     
@@ -419,7 +431,7 @@ def load_data():
     
     df_tce_clean['codigo_emenda'] = df_tce_clean.apply(link_row_to_emenda, axis=1)
     
-    # 6. Calcular datas de última atualização
+    # 7. Calcular datas de última atualização
     # Emendas
     def parse_em_date(val):
         if not isinstance(val, str):
@@ -446,10 +458,10 @@ def load_data():
         "max_licitacao": max_lic_str
     }
     
-    return df_emendas_clean, df_tce_clean, df_coords, df_lic_clean, metadata_dates
+    return df_emendas_clean, df_tce_clean, df_coords, df_lic_clean, df_pag_clean, metadata_dates
 
 # Carregar dados
-df_emendas, df_tce, df_coords, df_lic, metadata_dates = load_data()
+df_emendas, df_tce, df_coords, df_lic, df_pag, metadata_dates = load_data()
 
 
 
@@ -506,6 +518,7 @@ else:
 df_emendas = df_emendas[df_emendas['mes_ano'].str.split('/').str[-1].isin(active_years)].copy()
 df_tce = df_tce[df_tce['ano_empenho'].astype(str).isin(active_years)].copy()
 df_lic = df_lic[df_lic['ano_licitacao'].astype(str).isin(active_years)].copy()
+df_pag = df_pag[df_pag['Código da Emenda'].fillna(0).astype(str).str.split('.').str[0].str.slice(0, 4).isin(active_years)].copy()
 
 # Estatísticas Rápidas Estaduais na Sidebar (dinâmicas com os anos selecionados)
 st.sidebar.markdown("---")
@@ -599,7 +612,7 @@ df_map_agg['Tamanho Visual'] = df_map_agg['total_emendas'].apply(lambda x: max(x
 # ----------------- RENDERIZAÇÃO DA INTERFACE PRINCIPAL -----------------
 
 st.markdown("<h1 class='main-title'>Painel de Emendas PIX (RP6) - Santa Catarina</h1>", unsafe_allow_html=True)
-st.markdown("<div style='font-size: 0.85rem; color: #64748b; margin-top: -15px; margin-bottom: 15px; font-weight: 500;'>Versão 1.5.0</div>", unsafe_allow_html=True)
+st.markdown("<div style='font-size: 0.85rem; color: #64748b; margin-top: -15px; margin-bottom: 15px; font-weight: 500;'>Versão 1.6.0</div>", unsafe_allow_html=True)
 st.markdown("##### Cruzamento de dados de Transferências Especiais da União (Emendas PIX), Obras e Mat. Permanentes (TCE-SC).")
 
 # Se nenhum município estiver selecionado, exibir o mapa geral e estatísticas globais do estado
@@ -746,6 +759,7 @@ else:
         # Filtros locais de dados
         muni_emendas_df = df_emendas[df_emendas['municipio_norm'] == muni_norm].copy()
         muni_tce_df = df_tce[df_tce['municipio_norm'] == muni_norm].copy()
+        muni_pag_df = df_pag[df_pag['municipio_norm'] == muni_norm].copy()
         
         # Título da Seção do Município
         st.markdown("---")
@@ -815,8 +829,8 @@ else:
                 st.info("Nenhuma emenda especial identificada para este município na base de emendas.")
             else:
                 # Exibir tabela formatada de emendas
-                df_em_show = muni_emendas_df[['codigo_emenda', 'autor', 'mes_ano', 'valor_emenda']].copy()
-                df_em_show.columns = ['Código da Emenda', 'Autor/Parlamentar', 'Mês/Ano', 'Valor (R$)']
+                df_em_show = muni_emendas_df[['codigo_emenda', 'codigo_plano_acao', 'autor', 'mes_ano', 'valor_emenda']].copy()
+                df_em_show.columns = ['Código da Emenda', 'Código do Plano de Ação', 'Autor/Parlamentar', 'Mês/Ano', 'Valor (R$)']
                 df_em_show['Valor (R$)'] = df_em_show['Valor (R$)'].apply(format_currency)
                 
                 col_tab1_1, col_tab1_2 = st.columns([6, 4])
@@ -1337,6 +1351,53 @@ else:
                     )
                     fig_cred.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False, coloraxis_showscale=False)
                     st.plotly_chart(fig_cred, width="stretch")
+
+            st.markdown("---")
+            st.subheader("Pagamentos às empresas (Extratos)")
+            if muni_pag_df.empty:
+                st.info("Nenhum pagamento a empresas encontrado para este município.")
+            else:
+                # Agrupar dados por CNPJ e Razão Social do beneficiário do pagamento
+                df_pags = muni_pag_df.groupby(['cnpj_beneficiario', 'Razão Social']).agg(
+                    total_pago=('valor_pago', 'sum')
+                ).reset_index().sort_values(by='total_pago', ascending=False)
+                
+                # Formatar o CNPJ
+                def format_cnpj_clean(doc):
+                    doc_str = "".join([c for c in str(doc).split('.')[0] if c.isdigit()])
+                    if len(doc_str) == 14:
+                        return f"{doc_str[:2]}.{doc_str[2:5]}.{doc_str[5:8]}/{doc_str[8:12]}-{doc_str[12:]}"
+                    elif len(doc_str) == 11:
+                        return f"{doc_str[:3]}.{doc_str[3:6]}.{doc_str[6:9]}-{doc_str[9:]}"
+                    return doc_str
+                
+                df_pags_show = df_pags.copy()
+                df_pags_show['CNPJ'] = df_pags_show['cnpj_beneficiario'].apply(format_cnpj_clean)
+                df_pags_show = df_pags_show[['CNPJ', 'Razão Social', 'total_pago']]
+                df_pags_show.columns = ['CNPJ', 'Razão Social', 'Valor Total Pago (R$)']
+                
+                df_pags_show['Valor Total Pago (R$)'] = df_pags_show['Valor Total Pago (R$)'].apply(format_currency)
+                
+                col_pag1, col_pag2 = st.columns([6, 4])
+                
+                with col_pag1:
+                    st.dataframe(df_pags_show, width="stretch", hide_index=True)
+                
+                with col_pag2:
+                    # Bar chart dos maiores beneficiários de pagamentos (Top 5)
+                    df_top_pag = df_pags.head(5)
+                    fig_pag = px.bar(
+                        df_top_pag,
+                        x='total_pago',
+                        y='Razão Social',
+                        orientation='h',
+                        title='Top 5 Empresas por Valor Pago (R$)',
+                        labels={'total_pago': 'Valor Total Pago (R$)', 'Razão Social': 'Empresa'},
+                        color='total_pago',
+                        color_continuous_scale=px.colors.sequential.Blues
+                    )
+                    fig_pag.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False, coloraxis_showscale=False)
+                    st.plotly_chart(fig_pag, width="stretch")
                     
         # ----------------- ABA 4: HISTÓRICO TEXTUAL E LINKS -----------------
         with tab_historico:
