@@ -132,6 +132,34 @@ def extract_cnpj(favorecido):
         return "".join([c for c in cnpj_raw if c.isdigit()])
     return ""
 
+# Função para garantir que campos de CNPJ sejam tratados como strings de tamanho 14
+def clean_cnpj_to_14(val):
+    if pd.isna(val) or val is None:
+        return ""
+    val_str = str(val).strip()
+    if val_str.endswith('.0'):
+        val_str = val_str[:-2]
+    digits = "".join([c for c in val_str if c.isdigit()])
+    if not digits:
+        return ""
+    return digits.zfill(14)
+
+# Função para padronizar CNPJ (tamanho 14) e CPF (tamanho 11) de fornecedores
+def standardize_cnpj_cpf(val):
+    if pd.isna(val) or val is None:
+        return ""
+    val_str = str(val).strip()
+    if val_str.endswith('.0'):
+        val_str = val_str[:-2]
+    digits = "".join([c for c in val_str if c.isdigit()])
+    if not digits:
+        return ""
+    if len(digits) > 11:
+        return digits.zfill(14)
+    else:
+        return digits.zfill(11)
+
+
 # Função para consultar informações da emenda e executor na API do Transferegov
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_transferegov_data(emenda_code, cnpj_muni):
@@ -320,7 +348,7 @@ def load_data():
     df_emendas['mes_ano'] = "12/" + df_emendas['year']
     
     # cnpj_beneficiario is the cnpj_municipio padded to 14 digits
-    df_emendas['cnpj_beneficiario'] = df_emendas['cnpj_municipio'].astype(str).str.zfill(14)
+    df_emendas['cnpj_beneficiario'] = df_emendas['cnpj_municipio'].apply(clean_cnpj_to_14)
     
     # Clean bank account fields
     df_emendas['codigo_plano_acao'] = df_emendas['codigo_plano_acao'].fillna("").astype(str)
@@ -829,8 +857,8 @@ else:
                 st.info("Nenhuma emenda especial identificada para este município na base de emendas.")
             else:
                 # Exibir tabela formatada de emendas
-                df_em_show = muni_emendas_df[['codigo_emenda', 'codigo_plano_acao', 'autor', 'mes_ano', 'valor_emenda']].copy()
-                df_em_show.columns = ['Código da Emenda', 'Código do Plano de Ação', 'Autor/Parlamentar', 'Mês/Ano', 'Valor (R$)']
+                df_em_show = muni_emendas_df[['codigo_emenda', 'codigo_plano_acao', 'autor', 'mes_ano', 'valor_emenda', 'banco', 'agencia', 'conta_corrente']].copy()
+                df_em_show.columns = ['Código da Emenda', 'Código do Plano de Ação', 'Autor/Parlamentar', 'Mês/Ano', 'Valor (R$)', 'Banco', 'Agência', 'Conta Corrente']
                 df_em_show['Valor (R$)'] = df_em_show['Valor (R$)'].apply(format_currency)
                 
                 col_tab1_1, col_tab1_2 = st.columns([6, 4])
@@ -1398,8 +1426,7 @@ else:
                     )
                     fig_pag.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False, coloraxis_showscale=False)
                     st.plotly_chart(fig_pag, width="stretch")
-                    
-        # ----------------- ABA 4: HISTÓRICO TEXTUAL E LINKS -----------------
+
         with tab_historico:
             st.subheader("Histórico Detalhado dos Empenhos (Obras e Materiais Permanentes)")
             if muni_tce_df.empty:
