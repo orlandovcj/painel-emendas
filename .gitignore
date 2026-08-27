@@ -26,7 +26,7 @@ pip-selfcheck.json
 *.njsproj
 *.sln
 *.swp
-
+.env
 # Arquivos do Sistema Operacional
 .DS_Store
 Thumbs.db

@@ -228,7 +228,7 @@ def fetch_financial_transfers(cnpj_muni, banco_codigo, agencia, conta):
     
     try:
         while page <= total_pages:
-            url = f"https://api-publica.transferegov.gestao.gov.br/especiais/gestao_financeira_lancamentos_especiais?cnpj_ente_solicitante_gestao_financeira={cnpj_clean}&codigo_banco_gestao_financeira={banco_clean}&codigo_agencia_gestao_financeira={agencia_clean}&codigo_conta_gestao_financeira={conta_clean}&pagina={page}&tamanho_da_pagina=200"
+            url = f"https://api-publica.transferegov.gestao.gov.br/especiais/gestao-financeira-lancamentos-especiais?cnpj_ente_solicitante_gestao_financeira={cnpj_clean}&codigo_banco_gestao_financeira={banco_clean}&codigo_agencia_gestao_financeira={agencia_clean}&codigo_conta_gestao_financeira={conta_clean}&pagina={page}&tamanho_da_pagina=200"
             r = requests.get(url, headers=headers, timeout=10)
             if r.status_code == 200:
                 res = r.json()
