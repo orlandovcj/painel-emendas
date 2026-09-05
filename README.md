@@ -4,6 +4,20 @@ Este é um painel interativo e analítico, desenvolvido em Python com a bibliote
 
 A aplicação cruza dados de repasses orçamentários, históricos de empenhos municipais para obras e materiais permanentes, licitações municipais enviadas ao Tribunal de Contas do Estado de Santa Catarina (TCE-SC), e consultas em tempo real com apuração de extratos e contas correntes na base oficial de dados do governo federal (Transferegov).
 
+Acesse o **Painel de Emendas PIX - Santa Catarina** em [[https://painel-emendas-pix-sc.streamlit.app/]](https://painel-emendas-pix-sc.streamlit.app).
+
+<div>
+(Painel de Emendas PIX - Santa Catarina)[https://painel-emendas-pix-sc.streamlit.app/]
+</div>
+
+<div>
+<p align="center">
+  <img src="imagens/screenshot1.png">
+</p>
+</div>
+
+</div>
+
 ---
 
 ## 🎯 Utilidade e Objetivo
@@ -11,7 +25,7 @@ A aplicação cruza dados de repasses orçamentários, históricos de empenhos m
 O painel visa aprimorar a transparência pública, permitindo que cidadãos, gestores municipais e órgãos de controle social e fiscalização (como o TCE-SC e a CGU):
 
 - Visualizem a distribuição espacial dos recursos de emendas federais por meio de mapas interativos.
-- Monitorem a eficiência de conversão financeira (relação entre o que foi empenhado/liquidado/pago nas prefeituras e os recursos PIX disponibilizados).
+- Monitoren a eficiência de conversão financeira (relação entre o que foi empenhado/liquidado/pago nas prefeituras e os recursos PIX disponibilizados).
 - Verifiquem o destino exato de cada pagamento feito por meio das contas específicas do governo federal, identificando fornecedores contratados e extratos de contas correntes ao vivo.
 - Identifiquem indícios de desvios, inconsistências ou casamentos de licitações suspeitas através de algoritmos de similaridade textual de objetos.
 
@@ -41,12 +55,32 @@ O painel visa aprimorar a transparência pública, permitindo que cidadãos, ges
 
 ### 1. 📂 Emendas & Parlamentares
 
+<div>
+<p align="center">
+  <img src="imagens/screenshot2.png">
+</p>
+</div>
+
 Focada nas fontes de recursos.
 
 - Exibe a listagem de emendas parlamentares do município selecionado, o parlamentar autor do envio e os montantes correspondentes.
 - Ao selecionar uma emenda, realiza a integração em tempo real com a API do governo federal apresentando o **Objeto Pactuado (API)** e dados de **Contas de Execução**.
-- Contém a funcionalidade de consulta viva de **Lançamentos Financeiros (Extrato)** com cartões consolidados de crédito/débito e o gráfico analítico de pagamentos a PJs.
+- Contém a funcionalidade de consulta de **Lançamentos Financeiros (Extrato)** com cartões consolidados de crédito/débito e o gráfico analítico de pagamentos a PJs.
+
+<div>
+<p align="center">
+  <img src="imagens/screenshot3.png">
+</p>
+</div>
+
 - Lista as **Licitações Municipais Associadas** por cálculo de similaridade textual, indicando o grau de correspondência e a origem do casamento.
+
+
+<div>
+<p align="center">
+  <img src="imagens/screenshot4.png">
+</p>
+</div>
 
 ### 2. 🚧 Empenhos de Obras e Mat. Permanentes
 
@@ -57,6 +91,12 @@ Focada na execução física e orçamentária dos contratos municipais.
 - Inclui a coluna com a descrição textual do histórico do empenho municipal para maior auditoria.
 
 ### 3. 🏢 Empresas Contratadas
+
+<div>
+<p align="center">
+  <img src="imagens/screenshot5.png">
+</p>
+</div>
 
 Focada nas construtoras e prestadoras de serviços terceirizadas.
 
@@ -72,6 +112,12 @@ Focada na pesquisa textual e detalhamento individual de empenhos.
 - Apresenta os registros formatados em cartões informativos contendo o valor empenhado e pago.
 - Oferece um botão para busca direta de informações do empenho no Google.
 - Extrai e disponibiliza links clicáveis para acesso rápido a portais externos de transparência ou editais quando detectados no histórico.
+
+<div>
+<p align="center">
+  <img src="imagens/screenshot6.png">
+</p>
+</div>
 
 ---
 
