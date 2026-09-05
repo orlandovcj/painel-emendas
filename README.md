@@ -4,11 +4,7 @@ Este é um painel interativo e analítico, desenvolvido em Python com a bibliote
 
 A aplicação cruza dados de repasses orçamentários, históricos de empenhos municipais para obras e materiais permanentes, licitações municipais enviadas ao Tribunal de Contas do Estado de Santa Catarina (TCE-SC), e consultas em tempo real com apuração de extratos e contas correntes na base oficial de dados do governo federal (Transferegov).
 
-Acesse o **Painel de Emendas PIX - Santa Catarina** em [[https://painel-emendas-pix-sc.streamlit.app/]](https://painel-emendas-pix-sc.streamlit.app).
-
-<div>
-(Painel de Emendas PIX - Santa Catarina)[https://painel-emendas-pix-sc.streamlit.app/]
-</div>
+Acesse a versão atual do **Painel de Emendas PIX - Santa Catarina** em [[https://painel-emendas-pix-sc.streamlit.app/]](https://painel-emendas-pix-sc.streamlit.app).
 
 <div>
 <p align="center">
@@ -82,6 +78,8 @@ Focada nas fontes de recursos.
 </p>
 </div>
 
+
+
 ### 2. 🚧 Empenhos de Obras e Mat. Permanentes
 
 Focada na execução física e orçamentária dos contratos municipais.
@@ -89,6 +87,8 @@ Focada na execução física e orçamentária dos contratos municipais.
 - Apresenta uma tabela com os empenhos emitidos pela prefeitura que estão vinculados à recursos de transferências especiais da União.
 - Exibe as informações desmembradas de forma estruturada: número da licitação local correspondente, código do contrato, datas, credor fornecedor e valores de empenho, liquidação e pagamento.
 - Inclui a coluna com a descrição textual do histórico do empenho municipal para maior auditoria.
+
+
 
 ### 3. 🏢 Empresas Contratadas
 
@@ -103,6 +103,8 @@ Focada nas construtoras e prestadoras de serviços terceirizadas.
 - Exibe o ranking consolidado das empresas fornecedoras que receberam recursos no município selecionado.
 - Detalha a quantidade de empenhos atribuídos a cada empresa, o total empenhado, liquidado e o efetivamente pago em conta corrente.
 - Apresenta a seção **Pagamentos às empresas (Extratos)**, contendo uma tabela com o CNPJ, Razão Social e Valor total pagos a partir da base oficial `pagamentos_pj.csv` para o município selecionado, além de um gráfico de barras com o ranking das **Top 5 empresas** beneficiárias de pagamentos.
+
+
 
 ### 4. 📝 Detalhes e Histórico Textual
 
