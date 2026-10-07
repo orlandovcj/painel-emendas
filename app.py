@@ -565,26 +565,27 @@ def get_companies_catalog(df_p_data, df_t_data):
     merged['total_empenhado'] = merged['total_empenhado'].fillna(0.0)
     merged['total_tce_pago'] = merged['total_tce_pago'].fillna(0.0)
     merged['nome'] = merged['nome_x'].combine_first(merged['nome_y']).fillna("Fornecedor não identificado")
-    merged['total_movimentado'] = merged['total_pago'] + merged['total_empenhado']
+    merged['total_movimentado'] = merged['total_pago']
     merged = merged[merged['doc'].str.len() > 0]
-    merged = merged.sort_values(by='total_movimentado', ascending=False)
+    merged = merged.sort_values(by=['total_pago', 'total_empenhado'], ascending=[False, False])
     
     items = []
     for _, r in merged.iterrows():
         doc = r['doc']
         nome = r['nome']
-        val = r['total_movimentado']
         p_val = r['total_pago']
         e_val = r['total_empenhado']
+        tce_p_val = r['total_tce_pago']
         fmt_doc = format_cnpj_cpf(doc)
         label = f"{fmt_doc} - {nome}"
         items.append({
             'doc': doc,
             'label': label,
             'nome': nome,
-            'total_movimentado': val,
+            'total_movimentado': p_val,
             'total_pago': p_val,
-            'total_empenhado': e_val
+            'total_empenhado': e_val,
+            'total_tce_pago': tce_p_val
         })
     return items
 
@@ -832,12 +833,12 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
             df_top15['nome_curto'] = df_top15['nome'].apply(lambda x: x[:30] + '...' if len(x) > 30 else x)
             fig_top15 = px.bar(
                 df_top15,
-                x='total_movimentado',
+                x='total_pago',
                 y='nome_curto',
                 orientation='h',
-                title='Top 15 Fornecedores com Maior Volume de Recursos em SC (R$)',
-                labels={'total_movimentado': 'Total Movimentado (R$)', 'nome_curto': 'Empresa / Fornecedor'},
-                color='total_movimentado',
+                title='Top 15 Fornecedores com Maior Volume Pago em SC (Transferegov)',
+                labels={'total_pago': 'Total Pago (Extratos do Transferegov) (R$)', 'nome_curto': 'Empresa / Fornecedor'},
+                color='total_pago',
                 color_continuous_scale=px.colors.sequential.Tealgrn,
                 height=580
             )
@@ -868,7 +869,7 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
             <div class="metric-card-custom" style="border-left: 5px solid #8b5cf6; padding: 14px 18px; margin-bottom: 12px;">
                 <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Maior Fornecedor do Estado</div>
                 <div style="font-size: 1.15rem; font-weight: 800; color: #6d28d9; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{top_company['nome']}">{top_company['nome'][:24]}...</div>
-                <div style="font-size: 0.8rem; color: #475569; margin-top: 4px;">Total: <b>{format_currency(top_company['total_movimentado'])}</b></div>
+                <div style="font-size: 0.8rem; color: #475569; margin-top: 4px;">Total Pago (Transferegov): <b>{format_currency(top_company['total_pago'])}</b></div>
             </div>
             """, unsafe_allow_html=True)
             
@@ -879,17 +880,17 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
         st.markdown("### 📋 Tabela Geral de Fornecedores")
         df_cat_show = pd.DataFrame(catalog)
         df_cat_show['CNPJ/CPF'] = df_cat_show['doc'].apply(format_cnpj_cpf)
-        df_cat_show['Total em Extratos (R$)'] = df_cat_show['total_pago'].astype(float).round(2)
+        df_cat_show['Total Pago (Extratos do Transferegov) (R$)'] = df_cat_show['total_pago'].astype(float).round(2)
         df_cat_show['Total Empenhado TCE (R$)'] = df_cat_show['total_empenhado'].astype(float).round(2)
-        df_cat_show['Total Movimentado (R$)'] = df_cat_show['total_movimentado'].astype(float).round(2)
-        df_cat_show = df_cat_show[['CNPJ/CPF', 'nome', 'Total em Extratos (R$)', 'Total Empenhado TCE (R$)', 'Total Movimentado (R$)']]
-        df_cat_show.columns = ['CNPJ/CPF', 'Razão Social / Credor', 'Total em Extratos (R$)', 'Total Empenhado TCE (R$)', 'Total Movimentado (R$)']
+        df_cat_show['Total Pago TCE (R$)'] = df_cat_show['total_tce_pago'].astype(float).round(2)
+        df_cat_show = df_cat_show[['CNPJ/CPF', 'nome', 'Total Pago (Extratos do Transferegov) (R$)', 'Total Empenhado TCE (R$)', 'Total Pago TCE (R$)']]
+        df_cat_show.columns = ['CNPJ/CPF', 'Razão Social / Credor', 'Total Pago (Extratos do Transferegov) (R$)', 'Total Empenhado TCE (R$)', 'Total Pago TCE (R$)']
         st.dataframe(
             df_cat_show,
             column_config={
-                'Total em Extratos (R$)': st.column_config.NumberColumn(format="localized", step=0.01),
+                'Total Pago (Extratos do Transferegov) (R$)': st.column_config.NumberColumn(format="localized", step=0.01),
                 'Total Empenhado TCE (R$)': st.column_config.NumberColumn(format="localized", step=0.01),
-                'Total Movimentado (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
+                'Total Pago TCE (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
             },
             width="stretch",
             hide_index=True

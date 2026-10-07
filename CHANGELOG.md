@@ -6,6 +6,18 @@ O formato é baseado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
+## [1.8.1] - 2026-10-07
+
+### Corrigido
+
+- **Correção da Métrica de Volume no Panorama Geral de Fornecedores**:
+  - Substituição da métrica "Total Movimentado" (que incorria em duplicidade ao somar os saques/débitos em extrato com as reservas orçamentárias de empenho no TCE-SC) por **Total Pago (Extratos do Transferegov)**.
+  - **Top 15 Fornecedores**: Ranking e barras agora ordenados e calculados estritamente pelo volume efetivamente pago nas contas bancárias das emendas via Transferegov.
+  - **Card Maior Fornecedor do Estado**: Atualizado para refletir o maior credor por recursos efetivamente pagos via Transferegov.
+  - **Tabela Geral de Fornecedores**: Reestruturação das colunas financeiras com *Total Pago (Extratos do Transferegov) (R$)*, *Total Empenhado TCE (R$)* e *Total Pago TCE (R$)*, eliminando a soma duplicada.
+
+---
+
 ## [1.8.0] - 2026-10-07
 
 ### Adicionado

@@ -118,9 +118,9 @@ Ao selecionar **"🏢 Visão por Empresa"** no menu lateral, o painel se transfo
 
 #### Panorama Geral de Fornecedores (Nenhuma empresa selecionada)
 
-- **Top 15 Fornecedores de SC**: Gráfico comparativo das empresas com maior volume de recursos em Santa Catarina.
-- **Estatísticas Consolidadas**: Total de fornecedores identificados, volume total pago em extratos, volume empenhado no TCE e maior fornecedor do estado.
-- **Tabela Geral de Fornecedores**: Mais de 3.400 empresas catalogadas com CNPJ/CPF formatado, valores recebidos via Transferegov, empenhados no TCE-SC e volume total movimentado.
+- **Top 15 Fornecedores de SC**: Gráfico comparativo das empresas com maior volume pago em Santa Catarina via extratos do Transferegov.
+- **Estatísticas Consolidadas**: Total de fornecedores identificados, volume total pago em extratos, volume empenhado no TCE e maior fornecedor do estado (por total pago via Transferegov).
+- **Tabela Geral de Fornecedores**: Mais de 3.400 empresas catalogadas com CNPJ/CPF formatado, valores pagos via Transferegov (extratos bancários), valores empenhados e valores pagos no TCE-SC.
 
 #### Raio-X Completo da Empresa Selecionada
 
