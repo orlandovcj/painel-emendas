@@ -6,6 +6,36 @@ O formato é baseado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
+## [1.8.0] - 2026-10-07
+
+### Adicionado
+
+- **Suporte a Mapa Coroplético (Polígonos Municipais)**:
+  - Adicionado seletor de visualização na seção "Raio de Ação Geográfico: Presença em SC" permitindo alternar entre **🗺️ Polígonos Municipais (Coroplético)** e **📍 Bolhas Proporcionais (Scatter)**, com polígonos municipais definidos como padrão.
+  - Integração e carregamento com cache em memória (`@st.cache_data`) da malha cartográfica oficial de Santa Catarina a partir de `dados/geojs-SC-mun.json` via correspondência de códigos do IBGE (`properties.id`).
+- **Desmembramento dos Indicadores de Execução Contábil (TCE-SC)**:
+  - Criação de card de KPI dedicado para **Total Pago (TCE-SC)** (valores liquidados e pagos informados ao Tribunal de Contas), posicionado logo abaixo do card **Total Empenhado (TCE-SC)**.
+- **Reestruturação em Grade 2×2 na Aba 📍 Presença Geográfica**:
+  - Organização do espaço em duas colunas e duas linhas com 3 gráficos dedicados e 1 tabela comparativa:
+    - Gráfico *Valores Empenhados (Fonte: TCE-SC)* (escala `YlOrRd`).
+    - Gráfico *Valores Pagos (Fonte: TCE-SC)* (escala `Tealgrn`).
+    - Gráfico *Valores Pagos - Débitos Bancários (Fonte: Transferegov)* (escala `Blues`).
+    - Tabela comparativa consolidada por município.
+- **Gráfico de Evolução Anual dos Recursos (TCE-SC vs Transferegov)**:
+  - Gráfico temporal comparativo com curvas suaves (*spline*) e área translúcida (*fill tozeroy*), demonstrando ano a ano os valores empenhados no TCE-SC, pagos no TCE-SC e saídas de conta no Transferegov.
+- **Tabela de Evolução Mensal dos Recursos**:
+  - Nova tabela detalhada mês a mês (`MM/AAAA`) na aba de comparação, apresentando: *Mes/Ano*, *Empenhado (TCE-SC)*, *Pago (TCE-SC)*, *Debitado em Conta (Transferegov)* e *Divergência (R$)*.
+  - Criação da base de suporte indexada `dados/pagamentos_mensais_cache.json` para consulta em milissegundos dos débitos bancários mensais por empresa.
+
+### Modificado
+
+- **Reorganização da Aba de Comparação**:
+  - Renomeada para **⚖️ Comparação: TCE-SC vs Transferegov**.
+  - Reordenação da seção para melhor fluxo de auditoria: 1) Gráfico comparativo por município, 2) Tabela de conciliação por município, 3) Gráfico de evolução anual e 4) Tabela de evolução mensal.
+- Padronização de paletas visuais e formatação monetária localizada no padrão brasileiro em todos os novos componentes.
+
+---
+
 ## [1.7.0] - 2026-10-07
 
 ### Adicionado

@@ -348,6 +348,19 @@ def load_geojson_sc():
             return json.load(f)
     return None
 
+# Função para carregar e cachear a base mensal de pagamentos do Transferegov
+@st.cache_data(show_spinner=False)
+def load_pagamentos_mensais_cache():
+    base_dir = os.path.join(os.path.dirname(__file__), "dados")
+    cache_path = os.path.join(base_dir, "pagamentos_mensais_cache.json")
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
 # Função para carregar e cachear os dados
 @st.cache_data(show_spinner="Carregando e processando os dados...")
 def load_data():
@@ -1044,15 +1057,23 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
             <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Recebido em Conta</div>
             <div style="font-size: 1.8rem; font-weight: 800; color: #047857; margin-top: 4px;">{format_currency(tot_pago_extrato)}</div>
             <div style="font-size: 0.8rem; color: #475569; margin-top: 4px;">
-                Saídas diretas da conta bancária da emenda (Transferegov).
+                Saídas diretas das contas bancárias das emendas (Transferegov).
             </div>
         </div>
         
         <div class="metric-card-custom" style="border-left: 5px solid #f59e0b; padding: 14px 18px; margin-bottom: 12px;">
-            <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Empenhado no TCE-SC</div>
+            <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Empenhado (TCE-SC)</div>
             <div style="font-size: 1.8rem; font-weight: 800; color: #b45309; margin-top: 4px;">{format_currency(tot_emp_tce)}</div>
             <div style="font-size: 0.8rem; color: #475569; margin-top: 4px;">
-                Pago no TCE: <b>{format_currency(tot_pago_tce)}</b> (Obras e Mat. Perm.)
+                Recursos orçamentários reservados para obras e materiais permanentes.
+            </div>
+        </div>
+
+        <div class="metric-card-custom" style="border-left: 5px solid #0d9488; padding: 14px 18px; margin-bottom: 12px;">
+            <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Pago (TCE-SC)</div>
+            <div style="font-size: 1.8rem; font-weight: 800; color: #0f766e; margin-top: 4px;">{format_currency(tot_pago_tce)}</div>
+            <div style="font-size: 0.8rem; color: #475569; margin-top: 4px;">
+                Valores liquidados e pagos informados ao TCE-SC.
             </div>
         </div>
         
@@ -1068,7 +1089,7 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
             <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Empenhos e Contratos</div>
             <div style="font-size: 1.8rem; font-weight: 800; color: #6d28d9; margin-top: 4px;">{qtd_empenhos}</div>
             <div style="font-size: 0.8rem; color: #475569; margin-top: 4px;">
-                Processos registrados nos portais contábeis do TCE-SC.
+                Processos registrados junto ao TCE-SC.
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -1079,47 +1100,124 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
     tab_geo, tab_pol, tab_aud, tab_obras = st.tabs([
         "📍 Presença Geográfica",
         "🏛️ Origem Parlamentar",
-        "⚖️ Auditoria: TCE-SC vs Transferegov",
+        "⚖️ Comparação: TCE-SC vs Transferegov",
         "📝 Obras e Contratos Detalhados"
     ])
     
     # --- ABA 1: PRESENÇA GEOGRÁFICA ---
     with tab_geo:
-        st.subheader("Distribuição por Municípios Contratantes")
+        st.subheader("Distribuição por Municípios Contratantes (Onde a empresa atua?)")
         if df_map_comp.empty:
             st.info("Sem dados de municípios para esta empresa.")
         else:
-            df_geo_chart = df_map_comp.sort_values(by='total_empresa', ascending=False)
-            col_geo1, col_geo2 = st.columns([5, 5])
+            # Grid 2x2: Linha 1 (2 Gráficos TCE) | Linha 2 (1 Gráfico Transferegov + Tabela Comparativa)
             
-            with col_geo1:
-                fig_geo = px.bar(
-                    df_geo_chart.head(15),
-                    x='total_empresa',
-                    y='nome',
-                    orientation='h',
-                    title='Municípios com Maior Volume de Recursos (R$)',
-                    labels={'total_empresa': 'Total Recursos (R$)', 'nome': 'Município'},
-                    color='total_empresa',
-                    color_continuous_scale=px.colors.sequential.Blues
-                )
-                fig_geo.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False, coloraxis_showscale=False)
-                st.plotly_chart(fig_geo, width="stretch")
-                
-            with col_geo2:
-                # Tabela de municípios
-                df_geo_table = df_geo_chart[['nome', 'pago_extrato', 'empenhado_tce', 'pago_tce', 'qtd_emp']].copy()
-                df_geo_table.columns = ['Município', 'Debitado em Conta (R$)', 'Empenhado TCE (R$)', 'Pago TCE (R$)', 'Qtd. Empenhos']
-                df_geo_table['Debitado em Conta (R$)'] = df_geo_table['Debitado em Conta (R$)'].astype(float).round(2)
+            # --- LINHA 1 ---
+            row1_col1, row1_col2 = st.columns(2)
+            
+            # Gráfico 1: Valores Empenhados (Fonte: TCE-SC)
+            with row1_col1:
+                df_emp = df_map_comp[df_map_comp['empenhado_tce'] > 0].sort_values(by='empenhado_tce', ascending=False)
+                if not df_emp.empty:
+                    fig_emp = px.bar(
+                        df_emp.head(10),
+                        x='empenhado_tce',
+                        y='nome',
+                        orientation='h',
+                        title='Valores Empenhados (Fonte: TCE-SC)',
+                        labels={'empenhado_tce': 'Valor Empenhado (R$)', 'nome': 'Município'},
+                        color='empenhado_tce',
+                        color_continuous_scale=px.colors.sequential.YlOrRd,
+                        height=360
+                    )
+                    fig_emp.update_layout(
+                        yaxis={'categoryorder': 'total ascending'},
+                        showlegend=False,
+                        coloraxis_showscale=False,
+                        margin=dict(l=10, r=10, t=40, b=10)
+                    )
+                    st.plotly_chart(fig_emp, width="stretch")
+                else:
+                    st.markdown("##### Valores Empenhados (Fonte: TCE-SC)")
+                    st.info("Nenhum valor empenhado registrado no TCE-SC para esta empresa.")
+
+            # Gráfico 2: Valores Pagos (Fonte: TCE-SC)
+            with row1_col2:
+                df_pago_tce = df_map_comp[df_map_comp['pago_tce'] > 0].sort_values(by='pago_tce', ascending=False)
+                if not df_pago_tce.empty:
+                    fig_pago_tce = px.bar(
+                        df_pago_tce.head(10),
+                        x='pago_tce',
+                        y='nome',
+                        orientation='h',
+                        title='Valores Pagos (Fonte: TCE-SC)',
+                        labels={'pago_tce': 'Valor Pago TCE (R$)', 'nome': 'Município'},
+                        color='pago_tce',
+                        color_continuous_scale=px.colors.sequential.Tealgrn,
+                        height=360
+                    )
+                    fig_pago_tce.update_layout(
+                        yaxis={'categoryorder': 'total ascending'},
+                        showlegend=False,
+                        coloraxis_showscale=False,
+                        margin=dict(l=10, r=10, t=40, b=10)
+                    )
+                    st.plotly_chart(fig_pago_tce, width="stretch")
+                else:
+                    st.markdown("##### Valores Pagos (Fonte: TCE-SC)")
+                    st.info("Nenhum valor pago registrado contabilmente no TCE-SC para esta empresa.")
+
+            st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+
+            # --- LINHA 2 ---
+            row2_col1, row2_col2 = st.columns(2)
+            
+            # Gráfico 3: Valores Pagos - Débitos Bancários (Fonte: Transferegov)
+            with row2_col1:
+                df_extrato = df_map_comp[df_map_comp['pago_extrato'] > 0].sort_values(by='pago_extrato', ascending=False)
+                if not df_extrato.empty:
+                    fig_extrato = px.bar(
+                        df_extrato.head(10),
+                        x='pago_extrato',
+                        y='nome',
+                        orientation='h',
+                        title='Valores Pagos - Débitos Bancários (Fonte: Transferegov)',
+                        labels={'pago_extrato': 'Debitado em Conta (R$)', 'nome': 'Município'},
+                        color='pago_extrato',
+                        color_continuous_scale=px.colors.sequential.Blues,
+                        height=360
+                    )
+                    fig_extrato.update_layout(
+                        yaxis={'categoryorder': 'total ascending'},
+                        showlegend=False,
+                        coloraxis_showscale=False,
+                        margin=dict(l=10, r=10, t=40, b=10)
+                    )
+                    st.plotly_chart(fig_extrato, width="stretch")
+                else:
+                    st.markdown("##### Valores Pagos - Débitos Bancários (Fonte: Transferegov)")
+                    st.info("Nenhum débito bancário registrado no Transferegov para esta empresa.")
+
+            # Elemento 4: Tabela Comparativa
+            with row2_col2:
+                st.markdown("<div style='font-size: 1.05rem; font-weight: 700; color: #1e3a8a; margin-bottom: 8px;'>📋 Tabela Comparativa</div>", unsafe_allow_html=True)
+                df_geo_table = df_map_comp.sort_values(by='total_empresa', ascending=False)[
+                    ['nome', 'empenhado_tce', 'pago_tce', 'pago_extrato', 'qtd_emp']
+                ].copy()
+                df_geo_table.columns = ['Município', 'Empenhado TCE (R$)', 'Pago TCE (R$)', 'Debitado em Conta (R$)', 'Qtd. Empenhos']
                 df_geo_table['Empenhado TCE (R$)'] = df_geo_table['Empenhado TCE (R$)'].astype(float).round(2)
                 df_geo_table['Pago TCE (R$)'] = df_geo_table['Pago TCE (R$)'].astype(float).round(2)
+                df_geo_table['Debitado em Conta (R$)'] = df_geo_table['Debitado em Conta (R$)'].astype(float).round(2)
+                
                 st.dataframe(
                     df_geo_table,
                     column_config={
-                        'Debitado em Conta (R$)': st.column_config.NumberColumn(format="localized", step=0.01),
                         'Empenhado TCE (R$)': st.column_config.NumberColumn(format="localized", step=0.01),
-                        'Pago TCE (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
+                        'Pago TCE (R$)': st.column_config.NumberColumn(format="localized", step=0.01),
+                        'Debitado em Conta (R$)': st.column_config.NumberColumn(format="localized", step=0.01),
+                        'Qtd. Empenhos': st.column_config.NumberColumn(format="%d")
                     },
+                    height=360,
                     width="stretch",
                     hide_index=True
                 )
@@ -1217,8 +1315,8 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
             
     # --- ABA 3: AUDITORIA: TCE-SC VS TRANSFEREGOV ---
     with tab_aud:
-        st.subheader("Auditoria Cruzada: Execução Orçamentária (TCE) vs Execução Financeira (Transferegov)")
-        st.caption("Comparativo entre o que a prefeitura registrou na contabilidade do TCE-SC e os débitos reais saídos da conta bancária da emenda.")
+        st.subheader("Comparativo: Execução Orçamentária (TCE) vs Execução Financeira (Transferegov)")
+        st.caption("Comparativo entre o que a prefeitura informou ao TCE-SC e os débitos reais saídos da conta bancária da emenda.")
         
         if m_comp.empty:
             st.info("Sem dados suficientes para cruzamento.")
@@ -1248,10 +1346,11 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
                     '3. Debitado em Conta (Transferegov)': '#10b981'
                 }
             )
-            fig_audit.update_layout(xaxis_tickangle=-45)
             st.plotly_chart(fig_audit, width="stretch")
             
-            # Tabela de Conciliação
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # 1. Tabela de Conciliação Financeira por Município
             st.markdown("#### Conciliação Financeira por Município")
             df_concil = m_comp.copy()
             df_concil['diferenca'] = df_concil['pago_extrato'] - df_concil['pago_tce']
@@ -1285,6 +1384,138 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
                 width="stretch",
                 hide_index=True
             )
+            
+            # 2. Gráfico de Evolução Anual dos Recursos (TCE-SC vs Transferegov)
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.subheader("📈 Evolução Anual dos Recursos (TCE-SC vs Transferegov)")
+            
+            # Preparar dados temporais anuais da empresa
+            comp_tce_years = comp_tce.copy()
+            comp_tce_years['ano'] = comp_tce_years['ano_empenho'].astype(str)
+            comp_tce_years = comp_tce_years[comp_tce_years['ano'].str.match(r'^\d{4}$')]
+            y_tce = comp_tce_years.groupby('ano').agg(
+                empenhado_tce=('valor_empenhado', 'sum'),
+                pago_tce=('valor_pago', 'sum')
+            ).reset_index()
+
+            comp_pag_years = comp_pag.copy()
+            comp_pag_years['ano'] = comp_pag_years['Código da Emenda'].fillna(0).astype(str).str.split('.').str[0].str.slice(0, 4)
+            comp_pag_years = comp_pag_years[comp_pag_years['ano'].str.match(r'^\d{4}$')]
+            y_pag = comp_pag_years.groupby('ano')['valor_pago'].sum().reset_index(name='pago_extrato')
+
+            df_anual = pd.merge(y_tce, y_pag, on='ano', how='outer').fillna(0.0).sort_values(by='ano')
+
+            if not df_anual.empty:
+                fig_area = go.Figure()
+                fig_area.add_trace(go.Scatter(
+                    x=df_anual['ano'],
+                    y=df_anual['empenhado_tce'],
+                    mode='lines+markers',
+                    line=dict(color='#3b82f6', width=3, shape='spline'),
+                    marker=dict(size=7),
+                    fill='tozeroy',
+                    fillcolor='rgba(59, 130, 246, 0.08)',
+                    name='Valores Empenhados (TCE-SC)',
+                    hovertemplate='<b>%{x}</b><br>%{data.name}: R$ %{y:,.2f}<extra></extra>'
+                ))
+                fig_area.add_trace(go.Scatter(
+                    x=df_anual['ano'],
+                    y=df_anual['pago_tce'],
+                    mode='lines+markers',
+                    line=dict(color='#f59e0b', width=3, shape='spline'),
+                    marker=dict(size=7),
+                    fill='tozeroy',
+                    fillcolor='rgba(245, 158, 11, 0.08)',
+                    name='Valores Pagos (TCE-SC)',
+                    hovertemplate='<b>%{x}</b><br>%{data.name}: R$ %{y:,.2f}<extra></extra>'
+                ))
+                fig_area.add_trace(go.Scatter(
+                    x=df_anual['ano'],
+                    y=df_anual['pago_extrato'],
+                    mode='lines+markers',
+                    line=dict(color='#10b981', width=3, shape='spline'),
+                    marker=dict(size=7),
+                    fill='tozeroy',
+                    fillcolor='rgba(16, 185, 129, 0.08)',
+                    name='Valores Pagos em Conta (Transferegov)',
+                    hovertemplate='<b>%{x}</b><br>%{data.name}: R$ %{y:,.2f}<extra></extra>'
+                ))
+                fig_area.update_layout(
+                    title='Evolução Anual: Empenhado (TCE-SC) vs Pago (TCE-SC) vs Extrato Bancário (Transferegov)',
+                    plot_bgcolor='white',
+                    paper_bgcolor='white',
+                    height=360,
+                    margin=dict(l=10, r=10, t=40, b=20),
+                    xaxis=dict(showgrid=False, type='category'),
+                    yaxis=dict(showgrid=True, gridcolor='#F0F0F0'),
+                    legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
+                )
+                st.plotly_chart(fig_area, width="stretch")
+            else:
+                st.info("Sem dados anuais disponíveis para esta empresa.")
+                
+            # 3. Tabela de Evolução Mensal dos Recursos
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("#### 📅 Evolução Mensal dos Recursos")
+            
+            # Dados mensais do TCE-SC
+            comp_tce_m = comp_tce.copy()
+            comp_tce_m['data_dt'] = pd.to_datetime(comp_tce_m['data_empenho'], format='%d/%m/%Y', errors='coerce')
+            comp_tce_m = comp_tce_m.dropna(subset=['data_dt'])
+            comp_tce_m['Mes/Ano'] = comp_tce_m['data_dt'].dt.strftime('%m/%Y')
+            
+            tce_m_agg = comp_tce_m.groupby('Mes/Ano').agg(
+                empenhado_tce=('valor_empenhado', 'sum'),
+                pago_tce=('valor_pago', 'sum')
+            ).reset_index()
+
+            # Dados mensais do Transferegov (via cache consolidado de pagamentos)
+            target_doc = standardize_cnpj_cpf(selected_doc)
+            cache_mensal = load_pagamentos_mensais_cache()
+            doc_mensal_dict = cache_mensal.get(target_doc, {})
+            
+            pag_m_rows = [{'Mes/Ano': m_ano, 'pago_extrato': float(v)} for m_ano, v in doc_mensal_dict.items()]
+            df_pag_m = pd.DataFrame(pag_m_rows)
+
+            # Fallback se a empresa não constar no cache mensal detalhado
+            if df_pag_m.empty and not comp_pag.empty:
+                comp_pag_fb = comp_pag.copy()
+                comp_pag_fb['ano'] = comp_pag_fb['Código da Emenda'].fillna(0).astype(str).str.split('.').str[0].str.slice(0, 4)
+                comp_pag_fb = comp_pag_fb[comp_pag_fb['ano'].str.match(r'^\d{4}$')]
+                fb_agg = comp_pag_fb.groupby('ano')['valor_pago'].sum().reset_index()
+                df_pag_m = pd.DataFrame([{'Mes/Ano': f"12/{r['ano']}", 'pago_extrato': r['valor_pago']} for _, r in fb_agg.iterrows()])
+
+            # Mesclar bases mensais
+            df_mensal = pd.merge(tce_m_agg, df_pag_m, on='Mes/Ano', how='outer').fillna(0.0)
+            
+            if not df_mensal.empty:
+                df_mensal['dt_sort'] = pd.to_datetime(df_mensal['Mes/Ano'], format='%m/%Y', errors='coerce')
+                df_mensal = df_mensal.dropna(subset=['dt_sort']).sort_values(by='dt_sort', ascending=False)
+                
+                # Filtrar pelos anos ativos
+                df_mensal = df_mensal[df_mensal['dt_sort'].dt.year.astype(str).isin(active_years)].copy()
+                
+                df_mensal['Empenhado (TCE-SC)'] = df_mensal['empenhado_tce'].astype(float).round(2)
+                df_mensal['Pago (TCE-SC)'] = df_mensal['pago_tce'].astype(float).round(2)
+                df_mensal['Debitado em Conta (Transferegov)'] = df_mensal['pago_extrato'].astype(float).round(2)
+                df_mensal['Divergência (R$)'] = (df_mensal['Debitado em Conta (Transferegov)'] - df_mensal['Pago (TCE-SC)']).round(2)
+                
+                df_mensal_show = df_mensal[['Mes/Ano', 'Empenhado (TCE-SC)', 'Pago (TCE-SC)', 'Debitado em Conta (Transferegov)', 'Divergência (R$)']].copy()
+                
+                st.dataframe(
+                    df_mensal_show,
+                    column_config={
+                        'Mes/Ano': st.column_config.TextColumn("Mês/Ano"),
+                        'Empenhado (TCE-SC)': st.column_config.NumberColumn(format="localized", step=0.01),
+                        'Pago (TCE-SC)': st.column_config.NumberColumn(format="localized", step=0.01),
+                        'Debitado em Conta (Transferegov)': st.column_config.NumberColumn(format="localized", step=0.01),
+                        'Divergência (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
+                    },
+                    width="stretch",
+                    hide_index=True
+                )
+            else:
+                st.info("Nenhum registro mensal disponível para os filtros selecionados.")
             
     # --- ABA 4: OBRAS E CONTRATOS DETALHADOS (TCE-SC) ---
     with tab_obras:
@@ -1324,7 +1555,7 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
 # ----------------- RENDERIZAÇÃO DA INTERFACE PRINCIPAL -----------------
 
 st.markdown("<h1 class='main-title'>Painel de Emendas PIX (RP6) - Santa Catarina</h1>", unsafe_allow_html=True)
-st.markdown("<div style='font-size: 0.85rem; color: #64748b; margin-top: -15px; margin-bottom: 15px; font-weight: 500;'>Versão 1.7.0</div>", unsafe_allow_html=True)
+st.markdown("<div style='font-size: 0.85rem; color: #64748b; margin-top: -15px; margin-bottom: 15px; font-weight: 500;'>Versão 1.8.0</div>", unsafe_allow_html=True)
 st.markdown("##### Cruzamento de dados de Transferências Especiais da União (Emendas PIX), Obras e Mat. Permanentes (TCE-SC).")
 
 # Se estiver no modo de análise por Empresa
