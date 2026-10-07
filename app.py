@@ -635,30 +635,17 @@ analysis_mode = st.sidebar.radio(
 )
 st.session_state.analysis_mode = analysis_mode
 
-# Filtro por Ano na Sidebar (Multiselect para múltiplos anos/períodos)
-st.sidebar.markdown("---")
-st.sidebar.subheader("📅 Período / Anos de Referência")
+# Preparar opções de anos e anos ativos a partir do estado da sessão
 years_options = sorted(list(set(df_emendas['mes_ano'].str.split('/').str[-1].dropna().unique())), reverse=True)
-selected_years = st.sidebar.multiselect(
-    "Selecione os anos para exibir no painel:",
-    options=years_options,
-    default=years_options,
-    key="selected_years_filter"
-)
-
-if not selected_years:
-    st.sidebar.warning("⚠️ Nenhum ano selecionado. Exibindo todos por padrão.")
+active_years = st.session_state.get("selected_years_filter", years_options)
+if not active_years:
     active_years = years_options
-else:
-    active_years = selected_years
 
 # Aplicar o filtro de ano por sombreamento de variáveis
 df_emendas = df_emendas[df_emendas['mes_ano'].str.split('/').str[-1].isin(active_years)].copy()
 df_tce = df_tce[df_tce['ano_empenho'].astype(str).isin(active_years)].copy()
 df_lic = df_lic[df_lic['ano_licitacao'].astype(str).isin(active_years)].copy()
 df_pag = df_pag[df_pag['Código da Emenda'].fillna(0).astype(str).str.split('.').str[0].str.slice(0, 4).isin(active_years)].copy()
-
-st.sidebar.markdown("---")
 
 if analysis_mode == "📍 Visão por Município":
     # Listagem de municípios ordenados para o selectbox
@@ -715,6 +702,19 @@ else:
         st.session_state.selected_company = None
     elif selected_comp_choice in company_dict:
         st.session_state.selected_company = company_dict[selected_comp_choice]['doc']
+
+# Filtro por Ano na Sidebar (Posicionado abaixo do campo de município/empresa)
+st.sidebar.markdown("---")
+st.sidebar.subheader("📅 Período / Anos de Referência")
+selected_years = st.sidebar.multiselect(
+    "Selecione os anos para exibir no painel:",
+    options=years_options,
+    default=active_years,
+    key="selected_years_filter"
+)
+
+if not selected_years:
+    st.sidebar.warning("⚠️ Nenhum ano selecionado. Exibindo todos por padrão.")
 
 # Estatísticas Rápidas Estaduais na Sidebar (dinâmicas com os anos selecionados)
 st.sidebar.markdown("---")
