@@ -6,9 +6,34 @@ O formato é baseado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
+## [1.7.0] - 2026-10-07
+
+### Adicionado
+
+- **Novo Modo de Análise por Empresa/Fornecedor**: Inclusão de seletor de perspectiva na barra lateral ("📍 Visão por Município" vs "🏢 Visão por Empresa").
+- **Raio-X Completo da Empresa**:
+  - Mapa interativo de Santa Catarina com o **Raio de Ação Geográfico** destacando apenas as cidades onde a empresa atuou.
+  - Aba **📍 Presença Geográfica**: Ranking e tabela com as principais prefeituras contratantes.
+  - Aba **🏛️ Origem Parlamentar**: Distribuição dos recursos por parlamentar autor da emenda e indicador de dependência política.
+  - Aba **⚖️ Auditoria TCE-SC vs Transferegov**: Gráfico comparativo e tabela de conciliação entre execução orçamentária contábil e saídas financeiras de conta.
+  - Aba **📝 Obras e Contratos Detalhados**: Listagem estruturada de todos os empenhos, editais e objetos da empresa no TCE-SC.
+- Otimização de performance: cache temporal (TTL de 30 dias) para extratos bancários das contas de emendas no script de coleta.
+- Otimização: verificação e sincronização automática de novas contas correntes e novas emendas na API do Transferegov.
+
+### Modificado
+
+- **Ordenação Numérica e Formatação Monetária no Padrão Brasileiro**: Configuração de `st.column_config.NumberColumn(format="localized", step=0.01)` em todas as 11 tabelas do painel, garantindo que os valores monetários sejam exibidos no padrão brasileiro (ponto como separador de milhar e vírgula como separador decimal com duas casas decimais, ex.: `1.234.567,89`) preservando a ordenação matemática natural ao clicar nos cabeçalhos das colunas.
+- **Layout do Painel de Empresas**: Alinhamento dos cartões de métricas (KPIs) em uma coluna à direita ([7, 3]), posicionados ao lado do mapa interativo/gráfico geral, harmonizando o design com o painel de visão geral dos municípios.
+- **Navegação e Reset de Seleção**: Sincronização bidirecional do seletor da barra lateral com os botões "Voltar ao panorama geral de empresas" e "Resetar Seleção", garantindo que a empresa seja desmarcada e a visualização retorne ao Panorama Geral de Empresas.
+- Adição de novos parâmetros para controle de cache no script de atualização: `--dias-expiracao` (padrão: 30 dias).
+- Padronização da exibição de documentos nas tabelas da aba **🏢 Empresas Contratadas** ("Lista de Empresas Habilitadas e Contratadas" e "Pagamentos às empresas (Extratos)"): formato `99.999.999/9999-99` para CNPJ e `999.999.999-99` para CPF.
+
+---
+
 ## [1.6.0] - 2026-08-10
 
 ### Adicionado
+
 - Integração da base de pagamentos a pessoas jurídicas a partir do arquivo local `pagamentos_pj.csv`.
 - Nova seção **Pagamentos às empresas (Extratos)** na aba **🏢 Empresas Contratadas**, contendo uma tabela detalhada com CNPJ, Razão Social e Valor total pago agrupado para o município filtrado.
 - Gráfico de barras horizontais na aba **🏢 Empresas Contratadas** apresentando o ranking das **Top 5 empresas** beneficiárias de pagamentos (com base em `pagamentos_pj.csv`).
@@ -19,6 +44,7 @@ O formato é baseado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 ## [1.5.0] - 2026-07-31
 
 ### Adicionado
+
 - Integração de dados bancários offline a partir da nova fonte de dados `emendas_sc.csv`.
 - Resiliência offline para exibição imediata de banco, agência e conta corrente das emendas selecionadas sem a necessidade de requisições de rede preliminares.
 - Suporte para anos históricos adicionais (2020 e 2021) no painel, expandindo o volume total de emendas cadastradas de 177 para 212 emendas únicas (3.611 registros).
@@ -26,6 +52,7 @@ O formato é baseado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 - Auditoria cruzada na listagem de licitações associadas: licitações municipais cujos contratados constam como beneficiários de retiradas/débitos na conta bancária da emenda são forçadamente listadas (passando por cima do limiar de similaridade de texto) e marcadas com a origem "Empresa Beneficiária de Pagamento" e seus dados de CNPJ/CPF.
 
 ### Modificado
+
 - Substituição da fonte de dados local das emendas de `emendas-por-favorecido.csv` para `emendas_sc.csv`.
 - Carregamento automático e otimizado na consulta de extratos (lançamentos financeiros): a consulta do extrato é realizada automaticamente ao selecionar uma emenda na tabela, eliminando a necessidade do clique em um botão manual. A consulta é feita diretamente a partir dos dados bancários do CSV local, reduzindo a latência e dispensando a necessidade das consultas prévias de busca de plano e executor do Transferegov.
 - Padronização e higienização dos campos numéricos bancários e códigos parlamentares durante a importação em `load_data()`.
@@ -36,9 +63,11 @@ O formato é baseado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 ## [1.4.0] - 2026-07-26
 
 ### Adicionado
+
 - Documentação da Aba 4 ("Detalhes e Histórico Textual") no `README.md`.
 
 ### Modificado
+
 - Fonte de dados dos empenhos atualizada para a planilha `TCE_empenhos_obras_mat_permanentes_tranferencias_especiais.xlsx` extraída do Portal Farol do TCE-SC. Esta planilha abrange todos os empenhos municipais catarinenses custeados pelas Transferências Especiais da União (Emendas PIX) que foram aplicados tanto em obras quanto em aquisição de materiais permanentes, ampliando o escopo do painel analítico.
 - Atualização das referências no `README.md` sobre a nova fonte de dados de empenhos e nomenclatura das abas correspondentes na interface da aplicação.
 
@@ -47,6 +76,7 @@ O formato é baseado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 ## [1.3.0] - 2026-07-24
 
 ### Adicionado
+
 - Extrato de movimentações financeiras ao vivo da conta bancária da emenda (Aba 1) consultando a API pública do Transferegov.
 - Gráfico de barras horizontais detalhando a distribuição dos débitos (saídas) destinados a PJs no extrato de conta da emenda, ordenados decrescentemente.
 - Seletor de período por múltiplos anos na barra lateral (`st.sidebar.multiselect`), permitindo filtros de anos individuais ou combinados sobre o painel.
@@ -55,11 +85,13 @@ O formato é baseado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 - Arquivo de configuração de diretórios de versionamento `.gitignore` para o ecossistema Python/Streamlit.
 
 ### Modificado
+
 - Processo de formatação do número de documento (CNPJ/CPF) no extrato financeiro da emenda, padronizando a exibição e o padding de zeros à esquerda (zeros suprimidos) para 14 dígitos (CNPJ) ou 11 dígitos (CPF).
 - A base de dados de licitações locais agora retém e extrai o campo `ano_licitacao` a partir do número do edital ou datas da licitação para compatibilidade com o filtro anual.
 - Arquivo de dependências `requirements.txt` atualizado para incluir o pacote `requests`.
 
 ### Corrigido
+
 - Refinado o leitor de data mais recente das licitações para avaliar especificamente a coluna `"Data Envio Licitação"`.
 
 ---
@@ -67,12 +99,14 @@ O formato é baseado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 ## [1.2.0] - 2026-07-24
 
 ### Adicionado
+
 - Sistema de busca de editais de licitação locais por similaridade combinada, cruzando simultaneamente o objeto da emenda do Transferegov e as descrições dos empenhos municipais associados.
 - Algoritmo de Jaccard Ponderado (Weighted Jaccard / MinMax) para comparação textual avançada.
 - **Location Weight Boosting**: Ponderação especial de similaridade com peso alto ($4.0$) para nomes de ruas, avenidas, rodovias, estradas ou bairros, mitigando falsos positivos em obras de pavimentação.
 - Exposição do campo "Origem da Similaridade" na listagem de licitações associadas.
 
 ### Modificado
+
 - Assinatura e parâmetros da função `fetch_transferegov_data` atualizados para extrair o CNPJ da prefeitura e realizar o filtro direto na consulta do plano de ação (`cnpj_beneficiario_plano_acao`).
 
 ---
@@ -80,13 +114,16 @@ O formato é baseado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 ## [1.1.0] - 2026-07-24
 
 ### Adicionado
+
 - Integração em tempo real com a API oficial do Transferegov para carregar dados do executor, objeto pactuado, situação do plano de ação e dados bancários da emenda parlamentar na Aba 1.
 - Inclusão da coluna "Descrição do Objeto" (derivada do campo `Descrição Histórico Empenho` do Excel do TCE-SC) na tabela principal de empenhos de obras da Aba 2.
 
 ### Modificado
+
 - Reestruturação das tabelas de auditoria da Aba 2 para incluir campos separados estruturados de Licitação (ex: `TP18/2023`) e Contrato (ex: `68/2023`).
 
 ### Corrigido
+
 - Ajustado o divisor dinâmico de códigos de licitações e contratos via expressão regular `re.split(r'\s+/\s+', ...)` para preservar a integridade de formatação com barras.
 
 ---
@@ -94,6 +131,7 @@ O formato é baseado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 ## [1.0.0] - 2026-07-24
 
 ### Adicionado
+
 - Versão inicial do Painel Interativo de Emendas e Obras de SC.
 - Mapa coroplético e de dispersão geográfico interativo de Santa Catarina (`plotly.express.scatter_map`) com tamanho das bolhas proporcional aos recursos recebidos e cores indicativas da taxa de execução.
 - KPIs estaduais e ranking de prefeituras na barra lateral.

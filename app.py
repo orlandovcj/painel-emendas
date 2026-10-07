@@ -159,6 +159,27 @@ def standardize_cnpj_cpf(val):
     else:
         return digits.zfill(11)
 
+# Função para formatar visualmente CNPJ ("99.999.999/9999-99") ou CPF ("999.999.999-99")
+def format_cnpj_cpf(val):
+    if pd.isna(val) or val is None:
+        return "-"
+    val_str = str(val).strip()
+    if val_str.endswith('.0'):
+        val_str = val_str[:-2]
+    # Se já possuir máscara com asterisco (sigilo fiscal do TCE-SC)
+    if '*' in val_str:
+        return val_str
+    digits = "".join([c for c in val_str if c.isdigit()])
+    if not digits:
+        return "-"
+    if len(digits) > 11:
+        doc = digits.zfill(14)
+        return f"{doc[:2]}.{doc[2:5]}.{doc[5:8]}/{doc[8:12]}-{doc[12:]}"
+    elif len(digits) > 0:
+        doc = digits.zfill(11)
+        return f"{doc[:3]}.{doc[3:6]}.{doc[6:9]}-{doc[9:]}"
+    return "-"
+
 
 # Função para consultar informações da emenda e executor na API do Transferegov
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -436,10 +457,14 @@ def load_data():
     df_pag['valor_pago'] = df_pag['Valor Total Pago'].astype(float)
     df_pag['cnpj_beneficiario'] = df_pag['CNPJ do beneficiário do pagamento'].astype(str)
     
-    df_pag_clean = df_pag[[
+    cols_pag_clean = [
         'Nome do Município', 'municipio_norm', 'Código da Emenda', 'Autor da Emenda', 
         'cnpj_beneficiario', 'Razão Social', 'valor_pago'
-    ]].copy()
+    ]
+    if 'Código do Plano de Ação' in df_pag.columns:
+        cols_pag_clean.append('Código do Plano de Ação')
+    
+    df_pag_clean = df_pag[cols_pag_clean].copy()
     
     # 6. Vincular Empenhos a Emendas via Regex
     # Criamos um conjunto de códigos de emendas válidos por município
@@ -493,11 +518,61 @@ df_emendas, df_tce, df_coords, df_lic, df_pag, metadata_dates = load_data()
 
 
 
+# Função para criar catálogo consolidado de fornecedores/empresas
+@st.cache_data
+def get_companies_catalog(df_p_data, df_t_data):
+    p_temp = df_p_data.copy()
+    p_temp['doc'] = p_temp['cnpj_beneficiario'].apply(standardize_cnpj_cpf)
+    p_agg = p_temp.groupby('doc').agg(
+        total_pago=('valor_pago', 'sum'),
+        nome=('Razão Social', 'first')
+    ).reset_index()
+
+    t_temp = df_t_data.copy()
+    t_temp['doc'] = t_temp['cnpj_cpf'].apply(standardize_cnpj_cpf)
+    t_agg = t_temp.groupby('doc').agg(
+        total_empenhado=('valor_empenhado', 'sum'),
+        total_tce_pago=('valor_pago', 'sum'),
+        nome=('credor', 'first')
+    ).reset_index()
+
+    merged = pd.merge(p_agg, t_agg, on='doc', how='outer')
+    merged['total_pago'] = merged['total_pago'].fillna(0.0)
+    merged['total_empenhado'] = merged['total_empenhado'].fillna(0.0)
+    merged['total_tce_pago'] = merged['total_tce_pago'].fillna(0.0)
+    merged['nome'] = merged['nome_x'].combine_first(merged['nome_y']).fillna("Fornecedor não identificado")
+    merged['total_movimentado'] = merged['total_pago'] + merged['total_empenhado']
+    merged = merged[merged['doc'].str.len() > 0]
+    merged = merged.sort_values(by='total_movimentado', ascending=False)
+    
+    items = []
+    for _, r in merged.iterrows():
+        doc = r['doc']
+        nome = r['nome']
+        val = r['total_movimentado']
+        p_val = r['total_pago']
+        e_val = r['total_empenhado']
+        fmt_doc = format_cnpj_cpf(doc)
+        label = f"{fmt_doc} - {nome}"
+        items.append({
+            'doc': doc,
+            'label': label,
+            'nome': nome,
+            'total_movimentado': val,
+            'total_pago': p_val,
+            'total_empenhado': e_val
+        })
+    return items
+
 # ----------------- INICIALIZAÇÃO DE ESTADO DA SESSÃO -----------------
 if 'selected_mun' not in st.session_state:
     st.session_state.selected_mun = None
+if 'selected_company' not in st.session_state:
+    st.session_state.selected_company = None
+if 'analysis_mode' not in st.session_state:
+    st.session_state.analysis_mode = "📍 Visão por Município"
 
-# Callback para quando a seleção do sidebar mudar
+# Callbacks para controle de estado da seleção
 def on_sidebar_change():
     sel = st.session_state.sidebar_sel
     if sel == "Todos os Municípios":
@@ -505,25 +580,36 @@ def on_sidebar_change():
     else:
         st.session_state.selected_mun = sel
 
+def reset_all_selections():
+    st.session_state.selected_mun = None
+    if 'sidebar_sel' in st.session_state:
+        st.session_state.sidebar_sel = "Todos os Municípios"
+    st.session_state.selected_company = None
+    if 'sidebar_comp_sel' in st.session_state:
+        st.session_state.sidebar_comp_sel = "Todas as Empresas (Ranking Geral)"
+
+def reset_company_selection():
+    st.session_state.selected_company = None
+    if 'sidebar_comp_sel' in st.session_state:
+        st.session_state.sidebar_comp_sel = "Todas as Empresas (Ranking Geral)"
+
+def reset_municipality_selection():
+    st.session_state.selected_mun = None
+    if 'sidebar_sel' in st.session_state:
+        st.session_state.sidebar_sel = "Todos os Municípios"
+
 # ----------------- SIDEBAR DE CONTROLES -----------------
 st.sidebar.image("https://upload.wikimedia.org/wikipedia/commons/1/1a/Bandeira_de_Santa_Catarina.svg", width=120)
 st.sidebar.markdown("<h2 style='margin-top: 10px;'>Filtros e Controles</h2>", unsafe_allow_html=True)
 
-# Listagem de municípios ordenados para o selectbox
-muni_list = ["Todos os Municípios"] + sorted(list(df_coords['nome'].unique()))
-
-# Definir o índice padrão da sidebar com base na seleção ativa
-sidebar_default_idx = 0
-if st.session_state.selected_mun in muni_list:
-    sidebar_default_idx = muni_list.index(st.session_state.selected_mun)
-
-selected_muni = st.sidebar.selectbox(
-    "Selecione um município no mapa ou abaixo:",
-    muni_list,
-    index=sidebar_default_idx,
-    key="sidebar_sel",
-    on_change=on_sidebar_change
+# Seletor do Modo de Navegação
+analysis_mode = st.sidebar.radio(
+    "🎯 Modo de Análise:",
+    ["📍 Visão por Município", "🏢 Visão por Empresa"],
+    index=0 if st.session_state.analysis_mode == "📍 Visão por Município" else 1,
+    key="analysis_mode_choice"
 )
+st.session_state.analysis_mode = analysis_mode
 
 # Filtro por Ano na Sidebar (Multiselect para múltiplos anos/períodos)
 st.sidebar.markdown("---")
@@ -548,6 +634,64 @@ df_tce = df_tce[df_tce['ano_empenho'].astype(str).isin(active_years)].copy()
 df_lic = df_lic[df_lic['ano_licitacao'].astype(str).isin(active_years)].copy()
 df_pag = df_pag[df_pag['Código da Emenda'].fillna(0).astype(str).str.split('.').str[0].str.slice(0, 4).isin(active_years)].copy()
 
+st.sidebar.markdown("---")
+
+if analysis_mode == "📍 Visão por Município":
+    # Listagem de municípios ordenados para o selectbox
+    muni_list = ["Todos os Municípios"] + sorted(list(df_coords['nome'].unique()))
+    sidebar_default_idx = 0
+    if st.session_state.selected_mun in muni_list:
+        sidebar_default_idx = muni_list.index(st.session_state.selected_mun)
+
+    if st.session_state.selected_mun is None and st.session_state.get('sidebar_sel') != "Todos os Municípios":
+        st.session_state.sidebar_sel = "Todos os Municípios"
+
+    selected_muni = st.sidebar.selectbox(
+        "Selecione um município:",
+        muni_list,
+        index=sidebar_default_idx,
+        key="sidebar_sel",
+        on_change=on_sidebar_change
+    )
+else:
+    # Catálogo de Empresas filtrado pelos anos ativos
+    company_catalog = get_companies_catalog(df_pag, df_tce)
+    company_options = ["Todas as Empresas (Ranking Geral)"] + [c['label'] for c in company_catalog]
+    company_dict = {c['label']: c for c in company_catalog}
+
+    comp_default_idx = 0
+    if st.session_state.selected_company:
+        for idx_c, c_opt in enumerate(company_options[1:], start=1):
+            if company_dict.get(c_opt, {}).get('doc') == st.session_state.selected_company:
+                comp_default_idx = idx_c
+                break
+        else:
+            st.session_state.selected_company = None
+
+    # Sincronizar chave do selectbox se a seleção foi limpa externamente
+    if st.session_state.selected_company is None and st.session_state.get('sidebar_comp_sel') != "Todas as Empresas (Ranking Geral)":
+        st.session_state.sidebar_comp_sel = "Todas as Empresas (Ranking Geral)"
+
+    def on_company_change():
+        sel = st.session_state.sidebar_comp_sel
+        if sel == "Todas as Empresas (Ranking Geral)":
+            st.session_state.selected_company = None
+        elif sel in company_dict:
+            st.session_state.selected_company = company_dict[sel]['doc']
+
+    selected_comp_choice = st.sidebar.selectbox(
+        "Selecione uma Empresa / Fornecedor:",
+        company_options,
+        index=comp_default_idx,
+        key="sidebar_comp_sel",
+        on_change=on_company_change
+    )
+
+    if selected_comp_choice == "Todas as Empresas (Ranking Geral)":
+        st.session_state.selected_company = None
+    elif selected_comp_choice in company_dict:
+        st.session_state.selected_company = company_dict[selected_comp_choice]['doc']
+
 # Estatísticas Rápidas Estaduais na Sidebar (dinâmicas com os anos selecionados)
 st.sidebar.markdown("---")
 if len(active_years) == len(years_options):
@@ -570,8 +714,9 @@ else:
     st.sidebar.markdown("**Taxa de Execução Geral:** N/A")
 
 # Botão para limpar a seleção
-if st.sidebar.button("Resetar Seleção", type="primary"):
+if st.sidebar.button("Resetar Seleção", type="primary", on_click=reset_all_selections):
     st.session_state.selected_mun = None
+    st.session_state.selected_company = None
     st.rerun()
 
 # Informação de última atualização dos dados
@@ -637,11 +782,487 @@ df_map_agg['hover_text'] = df_map_agg.apply(get_hover_text, axis=1)
 # Ajustar tamanho visual das bolhas para que mesmo municípios sem emendas tenham um ponto clicável
 df_map_agg['Tamanho Visual'] = df_map_agg['total_emendas'].apply(lambda x: max(x, 150000) if x > 0 else 60000)
 
+# ----------------- PAINEL DE ANÁLISE POR EMPRESA / FORNECEDOR -----------------
+def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
+    # SE NENHUMA EMPRESA ESPECÍFICA ESTIVER SELECIONADA: PANORAMA GERAL
+    if st.session_state.selected_company is None:
+        st.markdown("---")
+        st.markdown("<h2 style='color:#1e3a8a;'>🏢 Panorama Geral de Empresas e Fornecedores em SC</h2>", unsafe_allow_html=True)
+        st.caption("Visão consolidada de todas as empresas e pessoas jurídicas contratadas e beneficiárias de pagamentos de Emendas PIX em Santa Catarina.")
+        
+        catalog = get_companies_catalog(df_pag_in, df_tce_in)
+        if not catalog:
+            st.warning("Nenhuma empresa identificada para os filtros selecionados.")
+            return
+            
+        tot_empresas = len(catalog)
+        tot_pago_geral = df_pag_in['valor_pago'].sum()
+        tot_emp_geral = df_tce_in['valor_empenhado'].sum()
+        top_company = catalog[0]
+        
+        # Colunas: Esquerda (Top 15 Gráfico) | Direita (Estatísticas de Fornecedores)
+        col_g1, col_g2 = st.columns([7, 3])
+        
+        with col_g1:
+            df_top15 = pd.DataFrame(catalog[:15])
+            df_top15['nome_curto'] = df_top15['nome'].apply(lambda x: x[:30] + '...' if len(x) > 30 else x)
+            fig_top15 = px.bar(
+                df_top15,
+                x='total_movimentado',
+                y='nome_curto',
+                orientation='h',
+                title='Top 15 Fornecedores com Maior Volume de Recursos em SC (R$)',
+                labels={'total_movimentado': 'Total Movimentado (R$)', 'nome_curto': 'Empresa / Fornecedor'},
+                color='total_movimentado',
+                color_continuous_scale=px.colors.sequential.Tealgrn,
+                height=580
+            )
+            fig_top15.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False, coloraxis_showscale=False)
+            st.plotly_chart(fig_top15, width="stretch")
+            
+        with col_g2:
+            st.subheader("Estatísticas de Fornecedores")
+            st.markdown(f"""
+            <div class="metric-card-custom" style="border-left: 5px solid #3b82f6; padding: 14px 18px; margin-bottom: 12px;">
+                <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Fornecedores Identificados</div>
+                <div style="font-size: 1.8rem; font-weight: 800; color: #1e3a8a; margin-top: 4px;">{tot_empresas:,}</div>
+                <div style="font-size: 0.8rem; color: #475569; margin-top: 4px;">Empresas ativas em Santa Catarina.</div>
+            </div>
+            
+            <div class="metric-card-custom" style="border-left: 5px solid #10b981; padding: 14px 18px; margin-bottom: 12px;">
+                <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Pago nos Extratos</div>
+                <div style="font-size: 1.8rem; font-weight: 800; color: #047857; margin-top: 4px;">{format_currency(tot_pago_geral)}</div>
+                <div style="font-size: 0.8rem; color: #475569; margin-top: 4px;">Saídas diretas via Transferegov.</div>
+            </div>
+            
+            <div class="metric-card-custom" style="border-left: 5px solid #f59e0b; padding: 14px 18px; margin-bottom: 12px;">
+                <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Empenhado no TCE</div>
+                <div style="font-size: 1.8rem; font-weight: 800; color: #b45309; margin-top: 4px;">{format_currency(tot_emp_geral)}</div>
+                <div style="font-size: 0.8rem; color: #475569; margin-top: 4px;">Obras e materiais permanentes contratados.</div>
+            </div>
+            
+            <div class="metric-card-custom" style="border-left: 5px solid #8b5cf6; padding: 14px 18px; margin-bottom: 12px;">
+                <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Maior Fornecedor do Estado</div>
+                <div style="font-size: 1.15rem; font-weight: 800; color: #6d28d9; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{top_company['nome']}">{top_company['nome'][:24]}...</div>
+                <div style="font-size: 0.8rem; color: #475569; margin-top: 4px;">Total: <b>{format_currency(top_company['total_movimentado'])}</b></div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        st.markdown("---")
+        st.info("💡 **Dica:** Selecione uma empresa ou fornecedor no menu lateral esquerdo para acessar seu **Raio-X Completo** (mapa de presença, dependência parlamentar, auditoria cruzada e contratos).")
+        
+        # Tabela completa de fornecedores
+        st.markdown("### 📋 Tabela Geral de Fornecedores")
+        df_cat_show = pd.DataFrame(catalog)
+        df_cat_show['CNPJ/CPF'] = df_cat_show['doc'].apply(format_cnpj_cpf)
+        df_cat_show['Total em Extratos (R$)'] = df_cat_show['total_pago'].astype(float).round(2)
+        df_cat_show['Total Empenhado TCE (R$)'] = df_cat_show['total_empenhado'].astype(float).round(2)
+        df_cat_show['Total Movimentado (R$)'] = df_cat_show['total_movimentado'].astype(float).round(2)
+        df_cat_show = df_cat_show[['CNPJ/CPF', 'nome', 'Total em Extratos (R$)', 'Total Empenhado TCE (R$)', 'Total Movimentado (R$)']]
+        df_cat_show.columns = ['CNPJ/CPF', 'Razão Social / Credor', 'Total em Extratos (R$)', 'Total Empenhado TCE (R$)', 'Total Movimentado (R$)']
+        st.dataframe(
+            df_cat_show,
+            column_config={
+                'Total em Extratos (R$)': st.column_config.NumberColumn(format="localized", step=0.01),
+                'Total Empenhado TCE (R$)': st.column_config.NumberColumn(format="localized", step=0.01),
+                'Total Movimentado (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
+            },
+            width="stretch",
+            hide_index=True
+        )
+        return
+
+    # SE UMA EMPRESA ESPECÍFICA ESTIVER SELECIONADA (RAIO-X COMPLETO)
+    selected_doc = st.session_state.selected_company
+    comp_pag = df_pag_in[df_pag_in['cnpj_beneficiario'].apply(standardize_cnpj_cpf) == selected_doc].copy()
+    comp_tce = df_tce_in[df_tce_in['cnpj_cpf'].apply(standardize_cnpj_cpf) == selected_doc].copy()
+    
+    comp_name = "Empresa / Fornecedor"
+    if not comp_pag.empty:
+        comp_name = comp_pag['Razão Social'].iloc[0]
+    elif not comp_tce.empty:
+        comp_name = comp_tce['credor'].iloc[0]
+        
+    fmt_doc = format_cnpj_cpf(selected_doc)
+    
+    # Totais da Empresa
+    tot_pago_extrato = comp_pag['valor_pago'].sum()
+    tot_emp_tce = comp_tce['valor_empenhado'].sum()
+    tot_pago_tce = comp_tce['valor_pago'].sum()
+    
+    munis_atuacao = sorted(list(set(comp_pag['municipio_norm']).union(set(comp_tce['municipio_norm']))))
+    qtd_munis = len(munis_atuacao)
+    qtd_empenhos = len(comp_tce)
+    
+    st.markdown("---")
+    st.markdown(f"<h2 style='color:#1e3a8a; margin-top:0px;'>🏢 Raio-X da Empresa: {comp_name}</h2>", unsafe_allow_html=True)
+    st.markdown(f"<span style='background-color:#eff6ff; color:#1e40af; padding:6px 14px; border-radius:20px; font-weight:700; font-size:0.9rem; border:1px solid #bfdbfe;'>CNPJ/CPF: {fmt_doc}</span>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    if st.button("⬅️ Voltar ao Panorama Geral de Empresas", on_click=reset_company_selection):
+        st.session_state.selected_company = None
+        st.rerun()
+        
+    # Preparar dados agregados por município para o mapa da empresa
+    m_pag = comp_pag.groupby('municipio_norm')['valor_pago'].sum().reset_index(name='pago_extrato')
+    m_tce = comp_tce.groupby('municipio_norm').agg(
+        empenhado_tce=('valor_empenhado', 'sum'),
+        pago_tce=('valor_pago', 'sum'),
+        qtd_emp=('num_empenho', 'count')
+    ).reset_index()
+    
+    m_comp = pd.merge(m_pag, m_tce, on='municipio_norm', how='outer').fillna(0.0)
+    m_comp['total_empresa'] = m_comp['pago_extrato'] + m_comp['empenhado_tce']
+    
+    df_map_comp = df_coords_in.merge(m_comp, left_on='nome_normalizado', right_on='municipio_norm', how='inner')
+    df_map_comp = df_map_comp[df_map_comp['total_empresa'] > 0].copy()
+
+    # Layout de 2 colunas: Esquerda (Mapa) | Direita (KPIs da Empresa)
+    col_map, col_kpis = st.columns([7, 3])
+    
+    with col_map:
+        st.subheader("🗺️ Raio de Ação Geográfico: Presença em SC")
+        st.caption("O mapa destaca exclusivamente os municípios onde esta empresa foi contratada ou recebeu pagamentos de Emendas PIX.")
+        
+        if not df_map_comp.empty:
+            def get_comp_hover(row):
+                return (
+                    f"<b>{row['nome']}</b><br>"
+                    f"Debitado em Conta (Transferegov): {format_currency(row['pago_extrato'])}<br>"
+                    f"Empenhado para Obras (TCE-SC): {format_currency(row['empenhado_tce'])}<br>"
+                    f"Pago Contábil (TCE-SC): {format_currency(row['pago_tce'])}<br>"
+                    f"Qtd. Empenhos no TCE: {int(row['qtd_emp'])}"
+                )
+            df_map_comp['hover_text'] = df_map_comp.apply(get_comp_hover, axis=1)
+            df_map_comp['tamanho_visual'] = df_map_comp['total_empresa'].apply(lambda x: max(x, 150000))
+            
+            fig_comp_map = px.scatter_map(
+                df_map_comp,
+                lat="latitude",
+                lon="longitude",
+                size="tamanho_visual",
+                color="total_empresa",
+                color_continuous_scale=px.colors.sequential.Plotly3,
+                hover_name="nome",
+                zoom=6.8,
+                center={"lat": -27.25, "lon": -50.25},
+                height=580,
+            )
+            fig_comp_map.update_traces(
+                text=df_map_comp['hover_text'],
+                hovertemplate="%{text}<extra></extra>",
+                marker=dict(opacity=0.88)
+            )
+            fig_comp_map.update_layout(
+                map_style="open-street-map",
+                margin={"r":0,"t":0,"l":0,"b":0},
+                coloraxis_colorbar=dict(
+                    title="Volume (R$)",
+                    thicknessmode="pixels", thickness=15,
+                    lenmode="pixels", len=250,
+                    yanchor="top", y=1,
+                    xanchor="left", x=0.02
+                )
+            )
+            st.plotly_chart(fig_comp_map, width="stretch")
+        else:
+            st.info("Nenhuma coordenada geográfica encontrada para os municípios de atuação desta empresa.")
+            
+    with col_kpis:
+        st.subheader("Indicadores da Empresa")
+        
+        st.markdown(f"""
+        <div class="metric-card-custom" style="border-left: 5px solid #10b981; padding: 14px 18px; margin-bottom: 12px;">
+            <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Recebido em Conta</div>
+            <div style="font-size: 1.8rem; font-weight: 800; color: #047857; margin-top: 4px;">{format_currency(tot_pago_extrato)}</div>
+            <div style="font-size: 0.8rem; color: #475569; margin-top: 4px;">
+                Saídas diretas da conta bancária da emenda (Transferegov).
+            </div>
+        </div>
+        
+        <div class="metric-card-custom" style="border-left: 5px solid #f59e0b; padding: 14px 18px; margin-bottom: 12px;">
+            <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Empenhado no TCE-SC</div>
+            <div style="font-size: 1.8rem; font-weight: 800; color: #b45309; margin-top: 4px;">{format_currency(tot_emp_tce)}</div>
+            <div style="font-size: 0.8rem; color: #475569; margin-top: 4px;">
+                Pago no TCE: <b>{format_currency(tot_pago_tce)}</b> (Obras e Mat. Perm.)
+            </div>
+        </div>
+        
+        <div class="metric-card-custom" style="border-left: 5px solid #3b82f6; padding: 14px 18px; margin-bottom: 12px;">
+            <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Prefeituras Contratantes</div>
+            <div style="font-size: 1.8rem; font-weight: 800; color: #1e3a8a; margin-top: 4px;">{qtd_munis}</div>
+            <div style="font-size: 0.8rem; color: #475569; margin-top: 4px;">
+                Municípios de Santa Catarina com atuação da empresa.
+            </div>
+        </div>
+        
+        <div class="metric-card-custom" style="border-left: 5px solid #8b5cf6; padding: 14px 18px; margin-bottom: 12px;">
+            <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Empenhos e Contratos</div>
+            <div style="font-size: 1.8rem; font-weight: 800; color: #6d28d9; margin-top: 4px;">{qtd_empenhos}</div>
+            <div style="font-size: 0.8rem; color: #475569; margin-top: 4px;">
+                Processos registrados nos portais contábeis do TCE-SC.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        
+    # --- 2. ABAS ANALÍTICAS DA EMPRESA ---
+    st.markdown("---")
+    tab_geo, tab_pol, tab_aud, tab_obras = st.tabs([
+        "📍 Presença Geográfica",
+        "🏛️ Origem Parlamentar",
+        "⚖️ Auditoria: TCE-SC vs Transferegov",
+        "📝 Obras e Contratos Detalhados"
+    ])
+    
+    # --- ABA 1: PRESENÇA GEOGRÁFICA ---
+    with tab_geo:
+        st.subheader("Distribuição por Municípios Contratantes")
+        if df_map_comp.empty:
+            st.info("Sem dados de municípios para esta empresa.")
+        else:
+            df_geo_chart = df_map_comp.sort_values(by='total_empresa', ascending=False)
+            col_geo1, col_geo2 = st.columns([6, 4])
+            
+            with col_geo1:
+                fig_geo = px.bar(
+                    df_geo_chart.head(15),
+                    x='total_empresa',
+                    y='nome',
+                    orientation='h',
+                    title='Municípios com Maior Volume de Recursos (R$)',
+                    labels={'total_empresa': 'Total Recursos (R$)', 'nome': 'Município'},
+                    color='total_empresa',
+                    color_continuous_scale=px.colors.sequential.Blues
+                )
+                fig_geo.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False, coloraxis_showscale=False)
+                st.plotly_chart(fig_geo, width="stretch")
+                
+            with col_geo2:
+                # Tabela de municípios
+                df_geo_table = df_geo_chart[['nome', 'pago_extrato', 'empenhado_tce', 'pago_tce', 'qtd_emp']].copy()
+                df_geo_table.columns = ['Município', 'Debitado em Conta (R$)', 'Empenhado TCE (R$)', 'Pago TCE (R$)', 'Qtd. Empenhos']
+                df_geo_table['Debitado em Conta (R$)'] = df_geo_table['Debitado em Conta (R$)'].astype(float).round(2)
+                df_geo_table['Empenhado TCE (R$)'] = df_geo_table['Empenhado TCE (R$)'].astype(float).round(2)
+                df_geo_table['Pago TCE (R$)'] = df_geo_table['Pago TCE (R$)'].astype(float).round(2)
+                st.dataframe(
+                    df_geo_table,
+                    column_config={
+                        'Debitado em Conta (R$)': st.column_config.NumberColumn(format="localized", step=0.01),
+                        'Empenhado TCE (R$)': st.column_config.NumberColumn(format="localized", step=0.01),
+                        'Pago TCE (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
+                    },
+                    width="stretch",
+                    hide_index=True
+                )
+                
+    # --- ABA 2: ORIGEM PARLAMENTAR ---
+    with tab_pol:
+        st.subheader("Origem Parlamentar dos Recursos (Quem pagou a empresa?)")
+        if comp_pag.empty:
+            st.info("Não foram identificados pagamentos com detalhamento de autor no extrato do Transferegov para este fornecedor.")
+        else:
+            df_autores = comp_pag.groupby('Autor da Emenda')['valor_pago'].sum().reset_index().sort_values(by='valor_pago', ascending=False)
+            tot_aut = df_autores['valor_pago'].sum()
+            
+            top_aut = df_autores.iloc[0]
+            pct_top_aut = (top_aut['valor_pago'] / tot_aut * 100) if tot_aut > 0 else 0
+            
+            # Card de Dependência Política
+            if pct_top_aut >= 60:
+                alerta_cor = "#b91c1c"
+                alerta_bg = "#fef2f2"
+                alerta_border = "#fecaca"
+                nivel_dep = "ALTA CONCENTRAÇÃO POLÍTICA"
+            elif pct_top_aut >= 35:
+                alerta_cor = "#b45309"
+                alerta_bg = "#fffbeb"
+                alerta_border = "#fde68a"
+                nivel_dep = "CONCENTRAÇÃO MODERADA"
+            else:
+                alerta_cor = "#15803d"
+                alerta_bg = "#f0fdf4"
+                alerta_border = "#bbf7d0"
+                nivel_dep = "RECURSOS DIVERSIFICADOS"
+                
+            st.markdown(f"""
+            <div style="background-color: {alerta_bg}; border: 1px solid {alerta_border}; border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+                <div style="font-size: 0.75rem; font-weight: 700; color: {alerta_cor}; text-transform: uppercase; letter-spacing: 0.5px;">🎯 {nivel_dep}</div>
+                <div style="font-size: 1.25rem; font-weight: 700; color: {alerta_cor}; margin-top: 4px;">
+                    {pct_top_aut:.1f}% dos recursos de emendas recebidos por esta empresa vieram de: <b>{top_aut['Autor da Emenda']}</b>
+                </div>
+                <div style="font-size: 0.85rem; color: #475569; margin-top: 4px;">
+                    Total destinado por este autor: <b>{format_currency(top_aut['valor_pago'])}</b> de um total de {format_currency(tot_aut)} recebidos via emendas PIX.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col_pol1, col_pol2 = st.columns([5, 5])
+            with col_pol1:
+                fig_pie_aut = px.pie(
+                    df_autores,
+                    values='valor_pago',
+                    names='Autor da Emenda',
+                    title='Participação dos Parlamentares no Faturamento da Empresa',
+                    hole=0.45
+                )
+                fig_pie_aut.update_layout(showlegend=True)
+                st.plotly_chart(fig_pie_aut, width="stretch")
+                
+            with col_pol2:
+                fig_bar_aut = px.bar(
+                    df_autores,
+                    x='valor_pago',
+                    y='Autor da Emenda',
+                    orientation='h',
+                    title='Ranking de Autores por Valor Pago (R$)',
+                    labels={'valor_pago': 'Valor Pago (R$)', 'Autor da Emenda': 'Parlamentar'},
+                    color='valor_pago',
+                    color_continuous_scale=px.colors.sequential.Greens
+                )
+                fig_bar_aut.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False, coloraxis_showscale=False)
+                st.plotly_chart(fig_bar_aut, width="stretch")
+                
+            st.markdown("#### Detalhamento dos Pagamentos por Emenda")
+            cols_em_show = ['Autor da Emenda', 'Código da Emenda', 'Nome do Município']
+            has_plano = 'Código do Plano de Ação' in comp_pag.columns
+            if has_plano:
+                cols_em_show.append('Código do Plano de Ação')
+            cols_em_show.append('valor_pago')
+            
+            df_em_tab = comp_pag[cols_em_show].copy()
+            new_cols = ['Parlamentar', 'Código da Emenda', 'Município']
+            if has_plano:
+                new_cols.append('Plano de Ação')
+            new_cols.append('Valor Pago (R$)')
+            df_em_tab.columns = new_cols
+            df_em_tab['Código da Emenda'] = df_em_tab['Código da Emenda'].fillna(0).astype(str).str.split('.').str[0]
+            df_em_tab['Valor Pago (R$)'] = df_em_tab['Valor Pago (R$)'].astype(float).round(2)
+            st.dataframe(
+                df_em_tab,
+                column_config={
+                    'Valor Pago (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
+                },
+                width="stretch",
+                hide_index=True
+            )
+            
+    # --- ABA 3: AUDITORIA: TCE-SC VS TRANSFEREGOV ---
+    with tab_aud:
+        st.subheader("Auditoria Cruzada: Execução Orçamentária (TCE) vs Execução Financeira (Transferegov)")
+        st.caption("Comparativo entre o que a prefeitura registrou na contabilidade do TCE-SC e os débitos reais saídos da conta bancária da emenda.")
+        
+        if m_comp.empty:
+            st.info("Sem dados suficientes para cruzamento.")
+        else:
+            # Gráfico de barras agrupadas comparativo
+            df_audit_chart = m_comp.copy()
+            df_audit_chart = df_audit_chart.sort_values(by='total_empresa', ascending=False).head(10)
+            
+            # Formatar para barmode='group'
+            chart_data = []
+            for _, r in df_audit_chart.iterrows():
+                chart_data.append({'Município': r['municipio_norm'], 'Categoria': '1. Empenhado (TCE)', 'Valor': r['empenhado_tce']})
+                chart_data.append({'Município': r['municipio_norm'], 'Categoria': '2. Pago Contábil (TCE)', 'Valor': r['pago_tce']})
+                chart_data.append({'Município': r['municipio_norm'], 'Categoria': '3. Debitado em Conta (Transferegov)', 'Valor': r['pago_extrato']})
+            df_chart_melt = pd.DataFrame(chart_data)
+            
+            fig_audit = px.bar(
+                df_chart_melt,
+                x='Município',
+                y='Valor',
+                color='Categoria',
+                barmode='group',
+                title='Comparativo por Município: Empenhado (TCE) vs Pago (TCE) vs Extrato Bancário (R$)',
+                color_discrete_map={
+                    '1. Empenhado (TCE)': '#3b82f6',
+                    '2. Pago Contábil (TCE)': '#f59e0b',
+                    '3. Debitado em Conta (Transferegov)': '#10b981'
+                }
+            )
+            fig_audit.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig_audit, width="stretch")
+            
+            # Tabela de Conciliação
+            st.markdown("#### Conciliação Financeira por Município")
+            df_concil = m_comp.copy()
+            df_concil['diferenca'] = df_concil['pago_extrato'] - df_concil['pago_tce']
+            df_concil = df_concil.sort_values(by='total_empresa', ascending=False)
+            
+            def get_status_concil(row):
+                dif = row['diferenca']
+                if abs(dif) < 1.0:
+                    return "🟢 Alinhado"
+                elif dif > 0:
+                    return f"🟠 Débito em conta superior ao TCE (+{format_currency(dif)})"
+                else:
+                    return f"🔵 Empenho pago sem débito direto da conta ({format_currency(dif)})"
+                    
+            df_concil['Situação da Conciliação'] = df_concil.apply(get_status_concil, axis=1)
+            
+            df_concil_show = df_concil[['municipio_norm', 'empenhado_tce', 'pago_tce', 'pago_extrato', 'diferenca', 'Situação da Conciliação']].copy()
+            df_concil_show.columns = ['Município', 'Empenhado (TCE-SC)', 'Pago Contábil (TCE-SC)', 'Debitado em Conta (Transferegov)', 'Divergência (R$)', 'Situação']
+            df_concil_show['Empenhado (TCE-SC)'] = df_concil_show['Empenhado (TCE-SC)'].astype(float).round(2)
+            df_concil_show['Pago Contábil (TCE-SC)'] = df_concil_show['Pago Contábil (TCE-SC)'].astype(float).round(2)
+            df_concil_show['Debitado em Conta (Transferegov)'] = df_concil_show['Debitado em Conta (Transferegov)'].astype(float).round(2)
+            df_concil_show['Divergência (R$)'] = df_concil_show['Divergência (R$)'].astype(float).round(2)
+            st.dataframe(
+                df_concil_show,
+                column_config={
+                    'Empenhado (TCE-SC)': st.column_config.NumberColumn(format="localized", step=0.01),
+                    'Pago Contábil (TCE-SC)': st.column_config.NumberColumn(format="localized", step=0.01),
+                    'Debitado em Conta (Transferegov)': st.column_config.NumberColumn(format="localized", step=0.01),
+                    'Divergência (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
+                },
+                width="stretch",
+                hide_index=True
+            )
+            
+    # --- ABA 4: OBRAS E CONTRATOS DETALHADOS (TCE-SC) ---
+    with tab_obras:
+        st.subheader("Processos Licitatórios, Contratos e Empenhos Registrados no TCE-SC")
+        if comp_tce.empty:
+            st.info("Nenhum empenho de obras ou material permanente encontrado no TCE-SC para este fornecedor.")
+        else:
+            st.markdown(f"**Total de empenhos registrados:** {len(comp_tce)}")
+            
+            def split_lic(val):
+                parts = [p.strip() for p in re.split(r'\s+/\s+', str(val))]
+                return parts[0] if len(parts) > 0 else "Sem Info"
+                
+            def split_cont(val):
+                parts = [p.strip() for p in re.split(r'\s+/\s+', str(val))]
+                return parts[1] if len(parts) > 1 else "Sem Info"
+                
+            df_tce_emp_show = comp_tce[['num_empenho', 'ano_empenho', 'Ente', 'data_empenho', 'nr_licitacao', 'historico', 'valor_empenhado', 'valor_pago']].copy()
+            df_tce_emp_show['Licitação'] = df_tce_emp_show['nr_licitacao'].apply(split_lic)
+            df_tce_emp_show['Contrato'] = df_tce_emp_show['nr_licitacao'].apply(split_cont)
+            df_tce_emp_show = df_tce_emp_show.drop(columns=['nr_licitacao'])
+            df_tce_emp_show.columns = ['Nº Empenho', 'Ano', 'Município', 'Data', 'Descrição do Objeto', 'Vl. Empenhado (R$)', 'Vl. Pago (R$)', 'Licitação', 'Contrato']
+            df_tce_emp_show = df_tce_emp_show[['Nº Empenho', 'Ano', 'Município', 'Data', 'Licitação', 'Contrato', 'Descrição do Objeto', 'Vl. Empenhado (R$)', 'Vl. Pago (R$)']]
+            df_tce_emp_show['Vl. Empenhado (R$)'] = df_tce_emp_show['Vl. Empenhado (R$)'].astype(float).round(2)
+            df_tce_emp_show['Vl. Pago (R$)'] = df_tce_emp_show['Vl. Pago (R$)'].astype(float).round(2)
+            st.dataframe(
+                df_tce_emp_show,
+                column_config={
+                    'Vl. Empenhado (R$)': st.column_config.NumberColumn(format="localized", step=0.01),
+                    'Vl. Pago (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
+                },
+                width="stretch",
+                hide_index=True
+            )
+
+
 # ----------------- RENDERIZAÇÃO DA INTERFACE PRINCIPAL -----------------
 
 st.markdown("<h1 class='main-title'>Painel de Emendas PIX (RP6) - Santa Catarina</h1>", unsafe_allow_html=True)
-st.markdown("<div style='font-size: 0.85rem; color: #64748b; margin-top: -15px; margin-bottom: 15px; font-weight: 500;'>Versão 1.6.0</div>", unsafe_allow_html=True)
+st.markdown("<div style='font-size: 0.85rem; color: #64748b; margin-top: -15px; margin-bottom: 15px; font-weight: 500;'>Versão 1.7.0</div>", unsafe_allow_html=True)
 st.markdown("##### Cruzamento de dados de Transferências Especiais da União (Emendas PIX), Obras e Mat. Permanentes (TCE-SC).")
+
+# Se estiver no modo de análise por Empresa
+if st.session_state.analysis_mode == "🏢 Visão por Empresa":
+    render_company_panel(df_pag, df_tce, df_coords)
+    st.stop()
 
 # Se nenhum município estiver selecionado, exibir o mapa geral e estatísticas globais do estado
 if st.session_state.selected_mun is None:
@@ -794,7 +1415,7 @@ else:
         st.markdown(f"<h2 style='color:#1e3a8a; margin-top:0px;'>📍 Painel de Controle: {muni_name}</h2>", unsafe_allow_html=True)
         
         # Botão rápido para retornar ao mapa geral
-        if st.button("⬅️ Voltar ao Mapa Geral de SC"):
+        if st.button("⬅️ Voltar ao Mapa Geral de SC", on_click=reset_municipality_selection):
             st.session_state.selected_mun = None
             st.rerun()
             
@@ -859,7 +1480,7 @@ else:
                 # Exibir tabela formatada de emendas
                 df_em_show = muni_emendas_df[['codigo_emenda', 'codigo_plano_acao', 'autor', 'mes_ano', 'valor_emenda', 'banco', 'agencia', 'conta_corrente']].copy()
                 df_em_show.columns = ['Código da Emenda', 'Código do Plano de Ação', 'Autor/Parlamentar', 'Mês/Ano', 'Valor (R$)', 'Banco', 'Agência', 'Conta Corrente']
-                df_em_show['Valor (R$)'] = df_em_show['Valor (R$)'].apply(format_currency)
+                df_em_show['Valor (R$)'] = df_em_show['Valor (R$)'].astype(float).round(2)
                 
                 col_tab1_1, col_tab1_2 = st.columns([6, 4])
                 
@@ -867,6 +1488,9 @@ else:
                     # Habilita seleção de linha simples na tabela de emendas
                     selection = st.dataframe(
                         df_em_show,
+                        column_config={
+                            'Valor (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
+                        },
                         width="stretch",
                         hide_index=True,
                         on_select="rerun",
@@ -1106,11 +1730,14 @@ else:
                             return pd.Series([agent_str, formatted])
                             
                         df_tx_show[['Origem/Destino', 'CNPJ/CPF']] = df_tx.apply(get_agent_and_doc, axis=1)
-                        df_tx_show['Valor'] = df_tx['valor_gestao_financeira'].apply(format_currency)
+                        df_tx_show['Valor (R$)'] = df_tx['valor_gestao_financeira'].astype(float).round(2)
                         df_tx_show = df_tx_show.sort_values(by='Data', ascending=False)
                         
                         st.dataframe(
-                            df_tx_show[['Data', 'Operação', 'Descrição', 'Origem/Destino', 'CNPJ/CPF', 'Valor']],
+                            df_tx_show[['Data', 'Operação', 'Descrição', 'Origem/Destino', 'CNPJ/CPF', 'Valor (R$)']],
+                            column_config={
+                                'Valor (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
+                            },
                             width="stretch",
                             hide_index=True
                         )
@@ -1267,13 +1894,20 @@ else:
                                                           'Valor previsto licitação', 'Situação do Processo Licitatório', 'Similaridade', 'Origem']].copy()
                             
                             df_matches_show['Similaridade (%)'] = (df_matches_show['Similaridade'] * 100).apply(lambda x: f"{x:.1f}%")
-                            df_matches_show['Valor Previsto'] = df_matches_show['Valor previsto licitação'].apply(format_currency)
+                            df_matches_show['Valor Previsto (R$)'] = df_matches_show['Valor previsto licitação'].astype(float).round(2)
                             
                             df_matches_show = df_matches_show.drop(columns=['Similaridade', 'Valor previsto licitação'])
-                            df_matches_show.columns = ['Edital', 'Modalidade', 'Objeto da Licitação', 'Situação', 'Origem da Similaridade', 'Similaridade (%)', 'Valor Previsto']
-                            df_matches_show = df_matches_show[['Edital', 'Modalidade', 'Objeto da Licitação', 'Valor Previsto', 'Situação', 'Similaridade (%)', 'Origem da Similaridade']]
+                            df_matches_show.columns = ['Edital', 'Modalidade', 'Objeto da Licitação', 'Situação', 'Origem da Similaridade', 'Similaridade (%)', 'Valor Previsto (R$)']
+                            df_matches_show = df_matches_show[['Edital', 'Modalidade', 'Objeto da Licitação', 'Valor Previsto (R$)', 'Situação', 'Similaridade (%)', 'Origem da Similaridade']]
                             
-                            st.dataframe(df_matches_show, width="stretch", hide_index=True)
+                            st.dataframe(
+                                df_matches_show,
+                                column_config={
+                                    'Valor Previsto (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
+                                },
+                                width="stretch",
+                                hide_index=True
+                            )
                 else:
                     st.info("💡 Selecione uma linha na tabela acima para consultar o objeto pactuado e dados de conta bancária desta emenda na API do Transferegov.")
                     
@@ -1335,14 +1969,23 @@ else:
                     df_tce_show = df_tce_show[['Nº Empenho', 'Ano', 'Data', 'Empresa Contratada', 
                                                'Licitação', 'Contrato', 'Descrição do Objeto', 'Vl. Empenhado (R$)', 'Vl. Pago (R$)', 'Origem/Vínculo']]
                     
-                    df_tce_show['Vl. Empenhado (R$)'] = df_tce_show['Vl. Empenhado (R$)'].apply(format_currency)
-                    df_tce_show['Vl. Pago (R$)'] = df_tce_show['Vl. Pago (R$)'].apply(format_currency)
+                    df_tce_show['Vl. Empenhado (R$)'] = df_tce_show['Vl. Empenhado (R$)'].astype(float).round(2)
+                    df_tce_show['Vl. Pago (R$)'] = df_tce_show['Vl. Pago (R$)'].astype(float).round(2)
                     
-                    st.dataframe(df_tce_show, width="stretch", hide_index=True)
+                    st.dataframe(
+                        df_tce_show,
+                        column_config={
+                            'Vl. Empenhado (R$)': st.column_config.NumberColumn(format="localized", step=0.01),
+                            'Vl. Pago (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
+                        },
+                        width="stretch",
+                        hide_index=True
+                    )
                     
         # ----------------- ABA 3: EMPRESAS CONTRATADAS -----------------
         with tab_empresas:
             st.subheader("Lista de Empresas Habilitadas e Contratadas")
+            st.caption("Fonte: TCE/SC - Execução Orçamentária")
             if muni_tce_df.empty:
                 st.info("Nenhuma empresa contratada encontrada na base do TCE para este município.")
             else:
@@ -1354,15 +1997,24 @@ else:
                 ).reset_index().sort_values(by='total_empenhado', ascending=False)
                 
                 df_credores_show = df_credores.copy()
+                df_credores_show['CNPJ/CPF'] = df_credores_show['cnpj_cpf'].apply(format_cnpj_cpf)
+                df_credores_show['Total Empenhado (R$)'] = df_credores_show['total_empenhado'].astype(float).round(2)
+                df_credores_show['Total Pago (R$)'] = df_credores_show['total_pago'].astype(float).round(2)
+                df_credores_show = df_credores_show[['CNPJ/CPF', 'credor', 'Total Empenhado (R$)', 'Total Pago (R$)', 'num_empenhos']]
                 df_credores_show.columns = ['CNPJ/CPF', 'Nome do Credor/Empresa', 'Total Empenhado (R$)', 'Total Pago (R$)', 'Qtd. Empenhos']
-                
-                df_credores_show['Total Empenhado (R$)'] = df_credores_show['Total Empenhado (R$)'].apply(format_currency)
-                df_credores_show['Total Pago (R$)'] = df_credores_show['Total Pago (R$)'].apply(format_currency)
                 
                 col_tab3_1, col_tab3_2 = st.columns([6, 4])
                 
                 with col_tab3_1:
-                    st.dataframe(df_credores_show, width="stretch", hide_index=True)
+                    st.dataframe(
+                        df_credores_show,
+                        column_config={
+                            'Total Empenhado (R$)': st.column_config.NumberColumn(format="localized", step=0.01),
+                            'Total Pago (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
+                        },
+                        width="stretch",
+                        hide_index=True
+                    )
                 
                 with col_tab3_2:
                     # Bar chart dos maiores credores
@@ -1382,6 +2034,7 @@ else:
 
             st.markdown("---")
             st.subheader("Pagamentos às empresas (Extratos)")
+            st.caption("Fonte: Transferegov - Execução Financeira")
             if muni_pag_df.empty:
                 st.info("Nenhum pagamento a empresas encontrado para este município.")
             else:
@@ -1390,26 +2043,22 @@ else:
                     total_pago=('valor_pago', 'sum')
                 ).reset_index().sort_values(by='total_pago', ascending=False)
                 
-                # Formatar o CNPJ
-                def format_cnpj_clean(doc):
-                    doc_str = "".join([c for c in str(doc).split('.')[0] if c.isdigit()])
-                    if len(doc_str) == 14:
-                        return f"{doc_str[:2]}.{doc_str[2:5]}.{doc_str[5:8]}/{doc_str[8:12]}-{doc_str[12:]}"
-                    elif len(doc_str) == 11:
-                        return f"{doc_str[:3]}.{doc_str[3:6]}.{doc_str[6:9]}-{doc_str[9:]}"
-                    return doc_str
-                
                 df_pags_show = df_pags.copy()
-                df_pags_show['CNPJ'] = df_pags_show['cnpj_beneficiario'].apply(format_cnpj_clean)
-                df_pags_show = df_pags_show[['CNPJ', 'Razão Social', 'total_pago']]
-                df_pags_show.columns = ['CNPJ', 'Razão Social', 'Valor Total Pago (R$)']
-                
-                df_pags_show['Valor Total Pago (R$)'] = df_pags_show['Valor Total Pago (R$)'].apply(format_currency)
+                df_pags_show['CNPJ/CPF'] = df_pags_show['cnpj_beneficiario'].apply(format_cnpj_cpf)
+                df_pags_show['Valor Total Pago (R$)'] = df_pags_show['total_pago'].astype(float).round(2)
+                df_pags_show = df_pags_show[['CNPJ/CPF', 'Razão Social', 'Valor Total Pago (R$)']]
                 
                 col_pag1, col_pag2 = st.columns([6, 4])
                 
                 with col_pag1:
-                    st.dataframe(df_pags_show, width="stretch", hide_index=True)
+                    st.dataframe(
+                        df_pags_show,
+                        column_config={
+                            'Valor Total Pago (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
+                        },
+                        width="stretch",
+                        hide_index=True
+                    )
                 
                 with col_pag2:
                     # Bar chart dos maiores beneficiários de pagamentos (Top 5)
