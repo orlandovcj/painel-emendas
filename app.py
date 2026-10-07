@@ -7,6 +7,7 @@ import re
 import unicodedata
 import os
 import urllib.parse
+import json
 import requests
 
 # Configuração da página do Streamlit
@@ -336,6 +337,16 @@ def calculate_similarity_jaccard(text1, text2):
 
 # Padrão Regex para extrair códigos de emendas de 12 dígitos que começam com '202'
 EMENDA_PATTERN = re.compile(r'\b(202\d{9})\b')
+
+# Função para carregar e cachear a malha municipal GeoJSON de SC
+@st.cache_data(show_spinner=False)
+def load_geojson_sc():
+    base_dir = os.path.join(os.path.dirname(__file__), "dados")
+    geojson_path = os.path.join(base_dir, "geojs-SC-mun.json")
+    if os.path.exists(geojson_path):
+        with open(geojson_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return None
 
 # Função para carregar e cachear os dados
 @st.cache_data(show_spinner="Carregando e processando os dados...")
@@ -918,7 +929,7 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
     df_map_comp = df_map_comp[df_map_comp['total_empresa'] > 0].copy()
 
     # Layout de 2 colunas: Esquerda (Mapa) | Direita (KPIs da Empresa)
-    col_map, col_kpis = st.columns([7, 3])
+    col_map, col_kpis = st.columns([6, 4])
     
     with col_map:
         st.subheader("🗺️ Raio de Ação Geográfico: Presença em SC")
@@ -936,23 +947,74 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
             df_map_comp['hover_text'] = df_map_comp.apply(get_comp_hover, axis=1)
             df_map_comp['tamanho_visual'] = df_map_comp['total_empresa'].apply(lambda x: max(x, 150000))
             
-            fig_comp_map = px.scatter_map(
-                df_map_comp,
-                lat="latitude",
-                lon="longitude",
-                size="tamanho_visual",
-                color="total_empresa",
-                color_continuous_scale=px.colors.sequential.Plotly3,
-                hover_name="nome",
-                zoom=6.8,
-                center={"lat": -27.25, "lon": -50.25},
-                height=580,
+            # Seletor de Tipo de Mapa (Bolhas vs Coroplético)
+            map_view_type = st.radio(
+                "Tipo de Mapa:",
+                options=["📍 Bolhas Proporcionais (Scatter)", "🗺️ Polígonos Municipais (Coroplético)"],
+                horizontal=True,
+                key=f"comp_map_type_{st.session_state.selected_company}"
             )
-            fig_comp_map.update_traces(
-                text=df_map_comp['hover_text'],
-                hovertemplate="%{text}<extra></extra>",
-                marker=dict(opacity=0.88)
-            )
+            
+            if map_view_type == "📍 Bolhas Proporcionais (Scatter)":
+                fig_comp_map = px.scatter_map(
+                    df_map_comp,
+                    lat="latitude",
+                    lon="longitude",
+                    size="tamanho_visual",
+                    color="total_empresa",
+                    color_continuous_scale=px.colors.sequential.Plotly3,
+                    hover_name="nome",
+                    zoom=6.8,
+                    center={"lat": -27.25, "lon": -50.25},
+                    height=580,
+                )
+                fig_comp_map.update_traces(
+                    text=df_map_comp['hover_text'],
+                    hovertemplate="%{text}<extra></extra>",
+                    marker=dict(opacity=0.88)
+                )
+            else:
+                geojson_sc = load_geojson_sc()
+                if geojson_sc is not None:
+                    df_map_comp['codigo_ibge_str'] = df_map_comp['codigo_ibge'].astype(str)
+                    fig_comp_map = px.choropleth_map(
+                        df_map_comp,
+                        geojson=geojson_sc,
+                        locations="codigo_ibge_str",
+                        featureidkey="properties.id",
+                        color="total_empresa",
+                        color_continuous_scale=px.colors.sequential.Plotly3,
+                        hover_name="nome",
+                        zoom=6.8,
+                        center={"lat": -27.25, "lon": -50.25},
+                        height=580,
+                    )
+                    fig_comp_map.update_traces(
+                        text=df_map_comp['hover_text'],
+                        hovertemplate="%{text}<extra></extra>",
+                        marker_opacity=0.88,
+                        marker_line_width=1.5,
+                        marker_line_color="#1e293b"
+                    )
+                else:
+                    st.warning("Arquivo GeoJSON dos municípios de SC não encontrado em `dados/geojs-SC-mun.json`.")
+                    fig_comp_map = px.scatter_map(
+                        df_map_comp,
+                        lat="latitude",
+                        lon="longitude",
+                        size="tamanho_visual",
+                        color="total_empresa",
+                        color_continuous_scale=px.colors.sequential.Plotly3,
+                        hover_name="nome",
+                        zoom=6.8,
+                        center={"lat": -27.25, "lon": -50.25},
+                        height=580,
+                    )
+                    fig_comp_map.update_traces(
+                        text=df_map_comp['hover_text'],
+                        hovertemplate="%{text}<extra></extra>",
+                        marker=dict(opacity=0.88)
+                    )
             fig_comp_map.update_layout(
                 map_style="open-street-map",
                 margin={"r":0,"t":0,"l":0,"b":0},
@@ -1022,7 +1084,7 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
             st.info("Sem dados de municípios para esta empresa.")
         else:
             df_geo_chart = df_map_comp.sort_values(by='total_empresa', ascending=False)
-            col_geo1, col_geo2 = st.columns([6, 4])
+            col_geo1, col_geo2 = st.columns([5, 5])
             
             with col_geo1:
                 fig_geo = px.bar(
