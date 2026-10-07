@@ -22,7 +22,6 @@ O painel visa aprimorar a transparência pública, permitindo que cidadãos, ges
 - **Monitorem a eficiência de conversão financeira** (relação entre o que foi empenhado/liquidado/pago nas prefeituras e os recursos PIX disponibilizados).
 - **Verifiquem o destino exato de cada pagamento** feito por meio das contas específicas do governo federal, identificando fornecedores contratados e extratos de contas correntes.
 - **Auditem empresas e fornecedores contratados** com visão estadual consolidada, analisando raio de ação geográfico, concentração/dependência política por parlamentar e divergências entre a contabilidade do TCE-SC e saídas bancárias reais.
-- **Identifiquem indícios de inconsistências** ou casamentos de licitações através de algoritmos de similaridade textual de objetos com ponderação geográfica.
 
 ---
 
@@ -45,7 +44,7 @@ O painel visa aprimorar a transparência pública, permitindo que cidadãos, ges
    - Algoritmo de Jaccard Ponderado que realiza buscas de licitações municipais cadastradas que guardam similaridade com o objeto da emenda do Transferegov ou com o histórico de empenhos vinculados.
    - **Location Weight Boosting**: Palavras indicativas de vias públicas ou bairros (como nomes de ruas, avenidas, rodovias ou linhas) recebem peso extra ($4.0$) para evitar correspondências genéricas e focar na localização exata das intervenções urbanas.
 8. **Sincronização e Atualização Automática de Pagamentos**:
-   Script com suporte a execução multithreaded (8 threads paralelas), verificação de novas contas correntes e emendas diretamente na API do Transferegov e cache inteligente com validade de 30 dias.
+   Verificação de novas contas correntes e emendas diretamente na API do Transferegov e cache inteligente com validade de 30 dias.
 
 ---
 
