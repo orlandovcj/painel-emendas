@@ -950,10 +950,16 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
             # Seletor de Tipo de Mapa (Bolhas vs Coroplético)
             map_view_type = st.radio(
                 "Tipo de Mapa:",
-                options=["📍 Bolhas Proporcionais (Scatter)", "🗺️ Polígonos Municipais (Coroplético)"],
+                options=["🗺️ Polígonos Municipais (Coroplético)", "📍 Bolhas Proporcionais (Scatter)"],
+                # index=1,
                 horizontal=True,
                 key=f"comp_map_type_{st.session_state.selected_company}"
             )
+                       
+            # Para personalizar as cores:
+            # Verdes: px.colors.sequential.Greens ou px.colors.sequential.Tealgrn
+            # Tons quentes (amarelo para vermelho): px.colors.sequential.YlOrRd
+            # Viridis / Plasma / Turbo: px.colors.sequential.Viridis ou px.colors.sequential.Plasma
             
             if map_view_type == "📍 Bolhas Proporcionais (Scatter)":
                 fig_comp_map = px.scatter_map(
@@ -962,7 +968,7 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
                     lon="longitude",
                     size="tamanho_visual",
                     color="total_empresa",
-                    color_continuous_scale=px.colors.sequential.Plotly3,
+                    color_continuous_scale=px.colors.sequential.YlOrRd,
                     hover_name="nome",
                     zoom=6.8,
                     center={"lat": -27.25, "lon": -50.25},
@@ -983,7 +989,7 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
                         locations="codigo_ibge_str",
                         featureidkey="properties.id",
                         color="total_empresa",
-                        color_continuous_scale=px.colors.sequential.Plotly3,
+                        color_continuous_scale=px.colors.sequential.YlOrRd,
                         hover_name="nome",
                         zoom=6.8,
                         center={"lat": -27.25, "lon": -50.25},
@@ -1336,13 +1342,20 @@ if st.session_state.selected_mun is None:
         st.caption("DICA: Clique em um ponto no mapa para abrir o painel detalhado do município. Passe o mouse para ver resumos.")
         
         # Configurar mapa do Plotly Express
+        
+        # Para personalizar as cores:
+        # Azuis: px.colors.sequential.Blues
+        # Verdes: px.colors.sequential.Greens ou px.colors.sequential.Tealgrn
+        # Tons quentes (amarelo para vermelho): px.colors.sequential.YlOrRd
+        # Viridis / Plasma / Turbo: px.colors.sequential.Viridis ou px.colors.sequential.Plasma
+        
         fig = px.scatter_map(
             df_map_agg,
             lat="latitude",
             lon="longitude",
             size="Tamanho Visual",
             color="Execução (%)",
-            color_continuous_scale=px.colors.sequential.Viridis,
+            color_continuous_scale=px.colors.sequential.YlOrRd,
             range_color=[0, 100],
             hover_name="nome",
             hover_data={"latitude": False, "longitude": False, "Tamanho Visual": False, "Execução (%)": False},
