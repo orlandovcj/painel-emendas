@@ -1587,7 +1587,7 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
 # ----------------- RENDERIZAÇÃO DA INTERFACE PRINCIPAL -----------------
 
 st.markdown("<h1 class='main-title'>Painel de Emendas PIX (RP6) - Santa Catarina</h1>", unsafe_allow_html=True)
-st.markdown("<div style='font-size: 0.85rem; color: #64748b; margin-top: -15px; margin-bottom: 15px; font-weight: 500;'>Versão 1.8.0</div>", unsafe_allow_html=True)
+st.markdown("<div style='font-size: 0.85rem; color: #64748b; margin-top: -15px; margin-bottom: 15px; font-weight: 500;'>Versão 1.9.0</div>", unsafe_allow_html=True)
 st.markdown("##### Cruzamento de dados de Transferências Especiais da União (Emendas PIX), Obras e Mat. Permanentes (TCE-SC).")
 
 # Se estiver no modo de análise por Empresa
