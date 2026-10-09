@@ -6,6 +6,33 @@ O formato é baseado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
+## [1.9.0] - 2026-10-09
+
+### Adicionado
+
+- **Alerta de Transferência para Contas da Prefeitura (Mesma Titularidade)**:
+  - Adicionado alerta em destaque na **Visão por Município**, posicionado logo abaixo dos cards de resumo na seção *"💸 Movimentações Financeiras da Conta Corrente (Transferegov API)"*.
+  - Detecção automática de saídas da conta da emenda destinadas a outras contas da própria administração municipal (`TEV MESM T`, transferências para o mesmo CNPJ ou titularidade da prefeitura).
+  - Exibição do valor total transferido, quantidade de operações e identificação dos dados bancários de destino (banco, agência e conta).
+  - Texto orientativo contextualizando a importância do controle financeiro (ressaltando que pagamentos a fornecedores devem partir diretamente da conta da emenda e contextualizando retenções tributárias de IRRF, INSS, ISS).
+  - Tabela expansível (*expander*) com o histórico completo das transferências internas (data, valor, descrição e dados bancários de destino).
+- **Identificação de Contas Compartilhadas e Dados Bancários**:
+  - Inclusão das colunas **Banco**, **Agência**, **Conta Corrente** e **Conta Compartilhada** (`Sim` / `Não`) na tabela *"Detalhamento dos Pagamentos por Emenda"* na Visão por Empresa, permitindo auditar visualmente a conta bancária exata de onde partiram os recursos.
+  - Nota explicativa na interface informando quando os valores exibidos decorrem de rateio proporcional ponderado entre parlamentares.
+
+### Corrigido
+
+- **Correção de Duplicidade em Contas Bancárias Compartilhadas (Rateio Proporcional Ponderado)**:
+  - Correção da falha que multiplicava integralmente o valor dos pagamentos de uma conta corrente para todas as emendas vinculadas a ela quando um município utilizava uma conta única para múltiplos parlamentares.
+  - Implementação de algoritmo de rateio ponderado pelo aporte financeiro de cada emenda na conta (`Peso = Valor da Emenda / Total de Emendas na Conta`), garantindo conciliação 100% exata com os débitos reais do extrato bancário.
+  - Atualização do script `atualizar_pagamentos_pj.py` e recálculo da base `dados/pagamentos_pj.csv`, eliminando distorções de valores artificialmente duplicados.
+- **Eliminação de Aplicações Financeiras, Bancos e Tarifas da Base de Pagamentos PJ**:
+  - Identificação e expurgo de aplicações financeiras automáticas de saldo parado (como `BB-APLIC C.PRZ-APL.AUT` do Banco do Brasil, que somava indevidamente R$ 72,4 milhões) e tarifas bancárias (Caixa Econômica Federal) que figuravam erroneamente como empresas fornecedoras.
+  - Aperfeiçoamento da filtragem de PJs em `atualizar_pagamentos_pj.py` (`is_pj_transaction`) e em `app.py` (`is_pj_debit`), excluindo instituições financeiras, fundos de investimento, tarifas de transferência e entes públicos da listagem de credores.
+  - O ranking de maiores fornecedores de Santa Catarina agora reflete com precisão exclusivamente empresas privadas de construção civil, pavimentação, máquinas e serviços.
+
+---
+
 ## [1.8.1] - 2026-10-07
 
 ### Corrigido

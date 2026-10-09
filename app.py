@@ -487,6 +487,15 @@ def load_data():
     ]
     if 'Código do Plano de Ação' in df_pag.columns:
         cols_pag_clean.append('Código do Plano de Ação')
+    if 'Conta Compartilhada' in df_pag.columns:
+        cols_pag_clean.append('Conta Compartilhada')
+        
+    for c, em_col in [('Banco', 'banco'), ('Agência', 'agencia'), ('Conta Corrente', 'conta_corrente')]:
+        if c not in df_pag.columns and 'Código do Plano de Ação' in df_pag.columns:
+            em_map = df_emendas_clean.drop_duplicates(subset=['codigo_plano_acao']).set_index('codigo_plano_acao')
+            df_pag[c] = df_pag['Código do Plano de Ação'].map(em_map[em_col]).fillna('')
+        if c in df_pag.columns:
+            cols_pag_clean.append(c)
     
     df_pag_clean = df_pag[cols_pag_clean].copy()
     
@@ -1295,12 +1304,32 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
             has_plano = 'Código do Plano de Ação' in comp_pag.columns
             if has_plano:
                 cols_em_show.append('Código do Plano de Ação')
+            has_banco = 'Banco' in comp_pag.columns
+            if has_banco:
+                cols_em_show.append('Banco')
+            has_agencia = 'Agência' in comp_pag.columns
+            if has_agencia:
+                cols_em_show.append('Agência')
+            has_conta = 'Conta Corrente' in comp_pag.columns
+            if has_conta:
+                cols_em_show.append('Conta Corrente')
+            has_compartilhada = 'Conta Compartilhada' in comp_pag.columns
+            if has_compartilhada:
+                cols_em_show.append('Conta Compartilhada')
             cols_em_show.append('valor_pago')
             
             df_em_tab = comp_pag[cols_em_show].copy()
             new_cols = ['Parlamentar', 'Código da Emenda', 'Município']
             if has_plano:
                 new_cols.append('Plano de Ação')
+            if has_banco:
+                new_cols.append('Banco')
+            if has_agencia:
+                new_cols.append('Agência')
+            if has_conta:
+                new_cols.append('Conta Corrente')
+            if has_compartilhada:
+                new_cols.append('Conta Compartilhada')
             new_cols.append('Valor Pago (R$)')
             df_em_tab.columns = new_cols
             df_em_tab['Código da Emenda'] = df_em_tab['Código da Emenda'].fillna(0).astype(str).str.split('.').str[0]
@@ -1313,6 +1342,8 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
                 width="stretch",
                 hide_index=True
             )
+            if has_compartilhada and (comp_pag['Conta Compartilhada'] == 'Sim').any():
+                st.caption("ℹ️ **Rateio em Contas Compartilhadas**: Quando um município utiliza a mesma conta bancária para receber emendas de múltiplos parlamentares, os débitos para fornecedores são distribuídos proporcionalmente ao valor destinado por cada parlamentar na conta, evitando duplicações nos valores totais.")
             
     # --- ABA 3: AUDITORIA: TCE-SC VS TRANSFEREGOV ---
     with tab_aud:
@@ -1995,6 +2026,107 @@ else:
                             
                         st.markdown("<br>", unsafe_allow_html=True)
                         
+                        # --- ALERTA: TRANSFERÊNCIAS PARA OUTRAS CONTAS DA PREFEITURA (MESMA TITULARIDADE) ---
+                        tx_muni_transfers = []
+                        BANCOS_MAP = {
+                            "001": "Banco do Brasil", "1": "Banco do Brasil",
+                            "104": "Caixa Econômica Federal",
+                            "041": "Banrisul", "41": "Banrisul",
+                            "237": "Bradesco",
+                            "341": "Itaú",
+                            "033": "Santander", "33": "Santander",
+                            "756": "Sicoob",
+                            "748": "Sicredi",
+                            "085": "Viacredi / Ailos", "85": "Viacredi / Ailos",
+                            "021": "Banestes", "21": "Banestes"
+                        }
+                        
+                        ente_cnpj_clean = "".join([c for c in str(selected_cnpj or '').split('.')[0] if c.isdigit()]).zfill(14)
+                        
+                        for tx in tx_list:
+                            if tx.get('tipo_operacao_gestao_financeira') == 'D':
+                                doc_raw = tx.get('doc_favorecido_gestao_financeira') or ''
+                                doc_fav = "".join([c for c in str(doc_raw).split('.')[0] if c.isdigit()]).zfill(14)
+                                fav_nome = str(tx.get('nome_favorecido_gestao_financeira') or '').upper().strip()
+                                desc_tx = str(tx.get('descricao_gestao_financeira') or '').upper().strip()
+                                
+                                is_same_tit = (
+                                    (doc_fav and ente_cnpj_clean and doc_fav == ente_cnpj_clean) or
+                                    ("MESM T" in desc_tx or "MESMA TITULARIDADE" in desc_tx or "MESMO TITULAR" in desc_tx) or
+                                    ("MUNICIPIO" in fav_nome or "PREFEITURA" in fav_nome)
+                                )
+                                if is_same_tit:
+                                    tx_muni_transfers.append(tx)
+                                    
+                        if tx_muni_transfers:
+                            tot_transf_muni = sum(float(t.get('valor_gestao_financeira') or 0.0) for t in tx_muni_transfers)
+                            qtd_transf = len(tx_muni_transfers)
+                            
+                            destinos_info = []
+                            for t in tx_muni_transfers:
+                                b_cod = "".join([c for c in str(t.get('codigo_banco_favorecido_gestao_financeira') or '') if c.isdigit()])
+                                b_nome = BANCOS_MAP.get(b_cod, f"Banco {b_cod}" if b_cod else "Banco não informado")
+                                ag = str(t.get('codigo_agencia_favorecido_gestao_financeira') or '').strip()
+                                cc = str(t.get('codigo_conta_favorecido_gestao_financeira') or '').strip()
+                                
+                                det_str = b_nome
+                                if ag and ag != "***":
+                                    det_str += f" (Ag. {ag})"
+                                if cc and cc != "***":
+                                    det_str += f" (Conta {cc})"
+                                destinos_info.append(det_str)
+                                
+                            destinos_unicos = list(dict.fromkeys(destinos_info))
+                            destinos_texto = ", ".join(destinos_unicos) if destinos_unicos else "Outra conta de titularidade da Prefeitura"
+                            
+                            st.markdown(f"""
+                            <div style="background-color: #fffbeb; border: 1.5px solid #f59e0b; border-left: 6px solid #d97706; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 1.3rem;">⚠️</span>
+                                    <span style="font-size: 1.05rem; font-weight: 800; color: #92400e;">
+                                        ALERTA: TRANSFERÊNCIA DE RECURSOS PARA OUTRA CONTA DA PREFEITURA
+                                    </span>
+                                </div>
+                                <div style="font-size: 0.95rem; color: #78350f; margin-top: 8px; line-height: 1.5;">
+                                    Foi identificado que <b>{format_currency(tot_transf_muni)}</b> ({qtd_transf} transferência{'s' if qtd_transf > 1 else ''}) 
+                                    dos recursos desta emenda foram transferidos da conta oficial da emenda para <b>outra conta da Prefeitura</b> ({destinos_texto}).
+                                </div>
+                                <div style="font-size: 0.82rem; color: #b45309; margin-top: 8px; background-color: #fef3c7; padding: 8px 12px; border-radius: 6px; border: 1px solid #fde68a;">
+                                    📌 <b>Importância do Controle</b>: Isso pode acontecer em decorrência de retençoes de tributos (IRRF, INSS, ISS, etc.). Os recursos de transferências especiais devem ser executados e pagos a fornecedores <b>diretamente a partir da conta corrente específica da emenda</b>, evitando a transferência para outras contas gerais da Prefeitura onde a rastreabilidade direta do recurso federal pode ser comprometida.
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            with st.expander(f"📋 Ver detalhamento das {qtd_transf} transferências para contas da Prefeitura"):
+                                rows_transf = []
+                                for t in tx_muni_transfers:
+                                    dt = pd.to_datetime(t.get('data_lancamento_gestao_financeira')).strftime('%d/%m/%Y') if t.get('data_lancamento_gestao_financeira') else "-"
+                                    vl = float(t.get('valor_gestao_financeira') or 0.0)
+                                    ds = t.get('descricao_gestao_financeira') or "Transferência"
+                                    b_cod = "".join([c for c in str(t.get('codigo_banco_favorecido_gestao_financeira') or '') if c.isdigit()])
+                                    b_nome = BANCOS_MAP.get(b_cod, f"Banco {b_cod}" if b_cod else "-")
+                                    ag = str(t.get('codigo_agencia_favorecido_gestao_financeira') or '').strip()
+                                    cc = str(t.get('codigo_conta_favorecido_gestao_financeira') or '').strip()
+                                    rows_transf.append({
+                                        'Data': dt,
+                                        'Valor (R$)': vl,
+                                        'Descrição': ds,
+                                        'Banco Destino': b_nome,
+                                        'Agência Destino': ag if ag else "-",
+                                        'Conta Destino': cc if cc else "-"
+                                    })
+                                df_transf_show = pd.DataFrame(rows_transf)
+                                st.dataframe(
+                                    df_transf_show,
+                                    column_config={
+                                        'Valor (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
+                                    },
+                                    width="stretch",
+                                    hide_index=True
+                                )
+                                
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        
                         # Criar dataframe para exibição
                         df_tx = pd.DataFrame(tx_list)
                         df_tx_show = pd.DataFrame()
@@ -2057,7 +2189,6 @@ else:
                             doc_str = ""
                             if pd.notna(doc):
                                 doc_str = "".join([c for c in str(doc).split('.')[0] if c.isdigit()])
-                                # Tratar supressão de zeros à esquerda para CNPJ
                                 if 11 < len(doc_str) <= 14:
                                     doc_str = doc_str.zfill(14)
                                     
@@ -2066,7 +2197,28 @@ else:
                             
                             fav = row.get('nome_favorecido_gestao_financeira')
                             has_fav = pd.notna(fav) and str(fav).strip() != "" and str(fav).strip().lower() not in ("nan", "none")
-                            return is_pj and has_fav
+                            if not (is_pj and has_fav):
+                                return False
+
+                            doc_14 = doc_str.zfill(14) if doc_str else ""
+                            fav_upper = str(fav).upper().strip()
+                            desc_upper = str(row.get('descricao_gestao_financeira') or '').upper().strip()
+
+                            # Excluir bancos, aplicações e tarifas
+                            if doc_14.startswith('00000000') or doc_14.startswith('00360305'):
+                                return False
+                            if any(b in fav_upper for b in ['BANCO DO BRASIL', 'CAIXA ECONOMICA', 'BANRISUL', 'BRADESCO', 'ITAU', 'SANTANDER', 'DTVM']):
+                                return False
+                            if any(op in desc_upper for op in ['BB-APLIC', 'APLIC', 'INVESTIMENTO', 'FUNDO', 'RESGATE', 'TARIFA', 'DOC/TED INTERNET', 'TAR COBRANCA']):
+                                return False
+
+                            # Excluir prefeituras e transferências de mesma titularidade
+                            if any(m in fav_upper for m in ['MUNICIPIO DE', 'PREFEITURA', 'ESTADO DE SANTA CATARINA']):
+                                return False
+                            if any(term in desc_upper for term in ['MESM T', 'MESMA TITULARIDADE', 'MESMO TITULAR']):
+                                return False
+
+                            return True
 
                         df_pj_debits = df_tx[df_tx.apply(is_pj_debit, axis=1)].copy()
                         for doc in df_pj_debits['doc_favorecido_gestao_financeira'].dropna():
