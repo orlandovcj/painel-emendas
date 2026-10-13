@@ -87,7 +87,7 @@ def standardize_cnpj(val):
 
 
 def is_pj_transaction(tx):
-    """Verifica se a transação do extrato representa débito destinado a Pessoa Jurídica."""
+    """Verifica se a transação do extrato representa débito destinado a Pessoa Jurídica fornecedora de obras/serviços."""
     # Apenas operações de débito (saída de recursos)
     if tx.get("tipo_operacao_gestao_financeira") != "D":
         return False
@@ -106,7 +106,38 @@ def is_pj_transaction(tx):
         fav.strip() != "" and
         fav.strip().lower() not in ("nan", "none", "***")
     )
-    return is_pj and has_valid_name
+    if not (is_pj and has_valid_name):
+        return False
+
+    fav_upper = fav.upper().strip()
+    doc_14 = doc_digits.zfill(14)
+    desc_upper = str(tx.get("descricao_gestao_financeira") or "").upper().strip()
+
+    # 1. Desconsiderar Bancos, Aplicações Financeiras e Tarifas
+    # Banco do Brasil (raiz 00000000), Caixa Econômica (raiz 00360305) e outras instituições financeiras
+    if doc_14.startswith("00000000") or doc_14.startswith("00360305"):
+        return False
+    if any(b in fav_upper for b in [
+        "BANCO DO BRASIL", "CAIXA ECONOMICA", "BANRISUL", "BRADESCO", "ITAU", "SANTANDER",
+        "DTVM", "DISTRIBUIDORA DE TITULOS", "CORRETORA DE VALORES"
+    ]):
+        return False
+    if any(op in desc_upper for op in [
+        "BB-APLIC", "APLIC", "INVESTIMENTO", "FUNDO", "RESGATE", "APL.AUT",
+        "TARIFA", "DOC/TED INTERNET", "TAR COBRANCA", "MANUT CONTA", "PACOTE SERVICOS"
+    ]):
+        return False
+
+    # 2. Desconsiderar Transferências Internas para a própria Prefeitura / Ente Público (mesma titularidade)
+    cnpj_ente = clean_digits(tx.get("cnpj_ente_solicitante_gestao_financeira") or "").zfill(14)
+    if doc_14 and cnpj_ente and doc_14 == cnpj_ente:
+        return False
+    if any(term in desc_upper for term in ["MESM T", "MESMA TITULARIDADE", "MESMO TITULAR"]):
+        return False
+    if any(m in fav_upper for m in ["MUNICIPIO DE", "PREFEITURA", "ESTADO DE SANTA CATARINA", "SECRETARIA DE ESTADO"]):
+        return False
+
+    return True
 
 
 def sync_bank_accounts_from_transferegov(session, df_emendas_full, filepath, ano_min=2020):
@@ -528,8 +559,8 @@ def main():
             json.dump(cache_data, f)
         logger.info(f"Consultas finalizadas e salvas no cache ({args.cache}).")
 
-    # 5. Processar transações e consolidar pagamentos a PJs
-    logger.info("Consolidando lançamentos de pagamentos a pessoas jurídicas...")
+    # 5. Processar transações e consolidar pagamentos a PJs com rateio proporcional em contas compartilhadas
+    logger.info("Consolidando lançamentos de pagamentos a pessoas jurídicas com rateio proporcional...")
     records = []
 
     for k in unique_keys:
@@ -546,29 +577,61 @@ def main():
         if not pj_txs:
             continue
 
-        # Associar os pagamentos às emendas vinculadas a esta conta
-        for em_row in emenda_rows:
+        # Deduplicar emendas da conta por código do plano de ação para evitar duplicações internas
+        unique_planos = {}
+        for er in emenda_rows:
+            cpa = str(er.get("codigo_plano_acao", "")).strip()
+            if cpa and cpa not in unique_planos:
+                unique_planos[cpa] = er
+            elif not cpa:
+                unique_planos[id(er)] = er
+        emendas_da_conta = list(unique_planos.values())
+
+        def parse_emenda_val(row_dict):
+            try:
+                v = row_dict.get("valor_emenda")
+                return float(v) if v is not None and str(v).strip() != "" else 0.0
+            except (ValueError, TypeError):
+                return 0.0
+
+        total_valor_emendas_conta = sum(parse_emenda_val(er) for er in emendas_da_conta)
+        num_emendas_conta = len(emendas_da_conta)
+        is_conta_compartilhada = num_emendas_conta > 1
+
+        # Associar os pagamentos às emendas vinculadas a esta conta com rateio proporcional
+        for em_row in emendas_da_conta:
             cod_plano = str(em_row.get("codigo_plano_acao", "")).strip()
             raw_emenda = str(em_row.get("codigo_emenda", "")).strip()
             cod_emenda = raw_emenda[:12] if len(raw_emenda) >= 12 else raw_emenda
             nome_muni = str(em_row.get("nome_municipio", "")).strip()
             autor = str(em_row.get("nome_parlamentar", "")).strip()
 
+            val_emenda_indiv = parse_emenda_val(em_row)
+            if total_valor_emendas_conta > 0:
+                peso = val_emenda_indiv / total_valor_emendas_conta
+            else:
+                peso = 1.0 / num_emendas_conta if num_emendas_conta > 0 else 1.0
+
             for tx in pj_txs:
                 doc_raw = tx.get("doc_favorecido_gestao_financeira")
                 cnpj_fav = standardize_cnpj(doc_raw)
                 razao_social = str(tx.get("nome_favorecido_gestao_financeira", "")).strip()
-                valor = float(tx.get("valor_gestao_financeira") or 0.0)
+                valor_debito = float(tx.get("valor_gestao_financeira") or 0.0)
 
-                if valor > 0 and cnpj_fav and razao_social:
+                if valor_debito > 0 and cnpj_fav and razao_social:
+                    valor_rateado = valor_debito * peso
                     records.append({
                         "Código do Plano de Ação": cod_plano,
                         "Código da Emenda": cod_emenda,
                         "Nome do Município": nome_muni,
                         "Autor da Emenda": autor,
+                        "Banco": str(em_row.get("banco", "")).strip(),
+                        "Agência": str(em_row.get("agencia", "")).strip(),
+                        "Conta Corrente": str(em_row.get("conta_corrente", "")).strip(),
                         "CNPJ do beneficiário do pagamento": cnpj_fav,
                         "Razão Social": razao_social,
-                        "valor_pago": valor
+                        "valor_pago": valor_rateado,
+                        "Conta Compartilhada": "Sim" if is_conta_compartilhada else "Não"
                     })
 
     if not records:
@@ -578,14 +641,20 @@ def main():
     df_result = pd.DataFrame(records)
 
     # 6. Agrupar somando os pagamentos por emenda e empresa
-    df_consolidado = df_result.groupby([
+    group_cols = [
         "Código do Plano de Ação",
         "Código da Emenda",
         "Nome do Município",
         "Autor da Emenda",
+        "Banco",
+        "Agência",
+        "Conta Corrente",
         "CNPJ do beneficiário do pagamento",
-        "Razão Social"
-    ], as_index=False).agg({"valor_pago": "sum"})
+        "Razão Social",
+        "Conta Compartilhada"
+    ]
+    df_consolidado = df_result.groupby(group_cols, as_index=False).agg({"valor_pago": "sum"})
+    df_consolidado["valor_pago"] = df_consolidado["valor_pago"].round(2)
 
     df_consolidado.rename(columns={"valor_pago": "Valor Total Pago"}, inplace=True)
     df_consolidado.sort_values(
