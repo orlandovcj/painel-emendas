@@ -361,6 +361,40 @@ def load_pagamentos_mensais_cache():
             return {}
     return {}
 
+# Função para verificar e disparar atualização mensal das ordens bancárias
+def check_and_update_ordens_bancarias(base_dir, dias_expiracao=30):
+    """
+    Verifica se o arquivo ordens_bancarias_sc.csv existe e se foi atualizado
+    há menos de 'dias_expiracao' dias (padrão: 30 dias / mensal).
+    Caso contrário, executa o script exportar_ordens_bancarias_sc.py para atualizá-lo.
+    """
+    csv_path = os.path.join(base_dir, "ordens_bancarias_sc.csv")
+    script_path = os.path.join(os.path.dirname(__file__), "exportar_ordens_bancarias_sc.py")
+    
+    needs_update = False
+    if not os.path.exists(csv_path):
+        needs_update = True
+    else:
+        try:
+            mtime = os.path.getmtime(csv_path)
+            # 30 dias em segundos (mensal)
+            if (time.time() - mtime) > (dias_expiracao * 86400):
+                needs_update = True
+        except Exception:
+            needs_update = False
+
+    if needs_update and os.path.exists(script_path):
+        try:
+            import subprocess
+            subprocess.run(
+                [sys.executable, script_path, "--output", csv_path],
+                check=True,
+                timeout=90,
+                capture_output=True
+            )
+        except Exception:
+            pass
+
 # Função para carregar e cachear os dados
 @st.cache_data(show_spinner="Carregando e processando os dados...")
 def load_data():
@@ -529,16 +563,34 @@ def load_data():
     max_lic_str = max_lic_date.strftime('%d/%m/%Y') if pd.notna(max_lic_date) else "N/A"
 
     
+    # 8. Ordens Bancárias Recebidas (ordens_bancarias_sc.csv)
+    check_and_update_ordens_bancarias(base_dir)
+    df_ob = pd.DataFrame()
+    ob_path = os.path.join(base_dir, "ordens_bancarias_sc.csv")
+    if os.path.exists(ob_path):
+        try:
+            df_ob = pd.read_csv(ob_path, sep=";", dtype=str)
+            df_ob['municipio_orig'] = df_ob['nome_municipio'].astype(str).apply(clean_muni_name)
+            df_ob['municipio_norm'] = df_ob['municipio_orig'].apply(normalize_name).replace(MUNI_CORRECTIONS)
+            df_ob['valor_num'] = pd.to_numeric(df_ob['valor'], errors='coerce').fillna(0.0)
+            df_ob['data_dt'] = pd.to_datetime(df_ob['data_pagamento'], errors='coerce')
+        except Exception:
+            df_ob = pd.DataFrame()
+
+    max_ob_date = df_ob['data_dt'].max() if (not df_ob.empty and 'data_dt' in df_ob.columns) else pd.NaT
+    max_ob_str = max_ob_date.strftime('%d/%m/%Y') if pd.notna(max_ob_date) else "N/A"
+    
     metadata_dates = {
         "max_emenda": max_emenda_str,
         "max_empenho": max_empenho_str,
-        "max_licitacao": max_lic_str
+        "max_licitacao": max_lic_str,
+        "max_ob": max_ob_str
     }
     
-    return df_emendas_clean, df_tce_clean, df_coords, df_lic_clean, df_pag_clean, metadata_dates
+    return df_emendas_clean, df_tce_clean, df_coords, df_lic_clean, df_pag_clean, df_ob, metadata_dates
 
 # Carregar dados
-df_emendas, df_tce, df_coords, df_lic, df_pag, metadata_dates = load_data()
+df_emendas, df_tce, df_coords, df_lic, df_pag, df_ob, metadata_dates = load_data()
 
 
 
@@ -758,6 +810,7 @@ st.sidebar.markdown(f"""
     border: 1px solid #cbd5e1;
 ">
     <div>📅 <strong>Emendas:</strong> {metadata_dates['max_emenda']}</div>
+    <div>🏦 <strong>Ordens Bancárias:</strong> {metadata_dates.get('max_ob', 'N/A')}</div>
     <div>🏗️ <strong>Empenhos:</strong> {metadata_dates['max_empenho']}</div>
     <div>🔍 <strong>Licitações:</strong> {metadata_dates['max_licitacao']}</div>
 </div>
@@ -1556,7 +1609,7 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
 # ----------------- RENDERIZAÇÃO DA INTERFACE PRINCIPAL -----------------
 
 st.markdown("<h1 class='main-title'>Painel de Emendas PIX (RP6) - Santa Catarina</h1>", unsafe_allow_html=True)
-st.markdown("<div style='font-size: 0.85rem; color: #64748b; margin-top: -15px; margin-bottom: 15px; font-weight: 500;'>Versão 1.8.0</div>", unsafe_allow_html=True)
+st.markdown("<div style='font-size: 0.85rem; color: #64748b; margin-top: -15px; margin-bottom: 15px; font-weight: 500;'>Versão 1.9.0</div>", unsafe_allow_html=True)
 st.markdown("##### Cruzamento de dados de Transferências Especiais da União (Emendas PIX), Obras e Mat. Permanentes (TCE-SC).")
 
 # Se estiver no modo de análise por Empresa
@@ -1771,8 +1824,9 @@ else:
             """, unsafe_allow_html=True)
             
         # Abas de navegação de dados do município
-        tab_emendas, tab_obras, tab_empresas, tab_historico = st.tabs([
+        tab_emendas, tab_ob, tab_obras, tab_empresas, tab_historico = st.tabs([
             "📂 Emendas & Parlamentares",
+            "🏦 Ordens Bancárias Recebidas",
             "🚧 Empenhos de Obras e Mat. Permanentes",
             "🏢 Empresas Contratadas",
             "📝 Detalhes e Histórico Textual"
@@ -2218,7 +2272,161 @@ else:
                 else:
                     st.info("💡 Selecione uma linha na tabela acima para consultar o objeto pactuado e dados de conta bancária desta emenda na API do Transferegov.")
                     
-        # ----------------- ABA 2: EMPENHOS DE OBRAS E MAT. PERMANENTES -----------------
+        # ----------------- ABA 2: ORDENS BANCÁRIAS RECEBIDAS -----------------
+        with tab_ob:
+            st.subheader("🏦 Ordens Bancárias Creditadas em Conta Corrente")
+            muni_ob_df = df_ob[df_ob['municipio_norm'] == muni_norm].copy() if not df_ob.empty else pd.DataFrame()
+            
+            if muni_ob_df.empty:
+                st.info("Nenhuma ordem bancária registrada para este município na base oficial do Transferegov.")
+            else:
+                # Ordenar estritamente em ordem crescente de data de pagamento
+                muni_ob_sorted = muni_ob_df.sort_values(by=['data_dt', 'data_pagamento'], ascending=True).copy()
+                
+                total_ob_valor = muni_ob_sorted['valor_num'].sum()
+                qtd_obs = len(muni_ob_sorted)
+                qtd_contas = muni_ob_sorted['conta_corrente'].nunique()
+                
+                # KPIs Consolidados da Aba
+                col_ob1, col_ob2, col_ob3 = st.columns(3)
+                with col_ob1:
+                    st.markdown(f"""
+                    <div class="metric-card-custom" style="border-left: 4px solid #10b981;">
+                        <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Creditado em OBs</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #047857; margin-top: 4px;">{format_currency(total_ob_valor)}</div>
+                        <div style="font-size: 0.82rem; color: #475569; margin-top: 4px;">Recursos federais creditados</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col_ob2:
+                    st.markdown(f"""
+                    <div class="metric-card-custom" style="border-left: 4px solid #3b82f6;">
+                        <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Ordens Bancárias</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #1e3a8a; margin-top: 4px;">{qtd_obs}</div>
+                        <div style="font-size: 0.82rem; color: #475569; margin-top: 4px;">Ordens de pagamento emitidas</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col_ob3:
+                    st.markdown(f"""
+                    <div class="metric-card-custom" style="border-left: 4px solid #8b5cf6;">
+                        <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Contas Bancárias</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #6d28d9; margin-top: 4px;">{qtd_contas}</div>
+                        <div style="font-size: 0.82rem; color: #475569; margin-top: 4px;">Contas correntes contempladas</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                # --- GRÁFICO COMBINADO: EVOLUÇÃO ANUAL + TOTAL ACUMULADO ---
+                df_anual_ob = muni_ob_sorted.copy()
+                
+                def extract_year_ob(row):
+                    if pd.notna(row.get('data_dt')):
+                        return int(row['data_dt'].year)
+                    dt_str = str(row.get('data_pagamento', '')).strip()
+                    if len(dt_str) >= 4 and dt_str[:4].isdigit():
+                        return int(dt_str[:4])
+                    em_str = str(row.get('numero_emenda', '')).strip()
+                    if len(em_str) >= 4 and em_str[:4].isdigit():
+                        return int(em_str[:4])
+                    return 2024
+
+                df_anual_ob['ano'] = df_anual_ob.apply(extract_year_ob, axis=1)
+                df_anual_agg = df_anual_ob.groupby('ano').agg(
+                    valor_anual=('valor_num', 'sum'),
+                    qtd_obs=('orden_bancaria', 'count')
+                ).reset_index().sort_values(by='ano')
+
+                if not df_anual_agg.empty:
+                    df_anual_agg['valor_acumulado'] = df_anual_agg['valor_anual'].cumsum()
+
+                    fig_evolucao_ob = go.Figure()
+
+                    # Barras: Valor Anual Recebido
+                    fig_evolucao_ob.add_trace(go.Bar(
+                        x=df_anual_agg['ano'].astype(str),
+                        y=df_anual_agg['valor_anual'],
+                        name='Valor Recebido no Ano',
+                        marker=dict(
+                            color='#3b82f6',
+                            opacity=0.85,
+                            line=dict(color='#1d4ed8', width=1.5)
+                        ),
+                        hovertemplate='<b>Ano %{x}</b><br>Valor no Ano: R$ %{y:,.2f}<br>OBs: %{customdata} ordens<extra></extra>',
+                        customdata=df_anual_agg['qtd_obs']
+                    ))
+
+                    # Linha Suavizada: Evolução do Total Acumulado
+                    fig_evolucao_ob.add_trace(go.Scatter(
+                        x=df_anual_agg['ano'].astype(str),
+                        y=df_anual_agg['valor_acumulado'],
+                        mode='lines+markers',
+                        name='Total Acumulado',
+                        line=dict(color='#10b981', width=3.5, shape='spline'),
+                        marker=dict(size=8, color='#047857', line=dict(color='white', width=2)),
+                        fill='tozeroy',
+                        fillcolor='rgba(16, 185, 129, 0.08)',
+                        hovertemplate='<b>Ano %{x}</b><br>Total Acumulado: R$ %{y:,.2f}<extra></extra>'
+                    ))
+
+                    fig_evolucao_ob.update_layout(
+                        title='<b>📈 Evolução Anual e Acumulada das Ordens Bancárias Recebidas</b>',
+                        title_font=dict(size=14, color='#1e3a8a'),
+                        plot_bgcolor='white',
+                        paper_bgcolor='white',
+                        height=360,
+                        margin=dict(l=10, r=10, t=50, b=20),
+                        xaxis=dict(showgrid=False, type='category', title='Ano de Pagamento / Crédito'),
+                        yaxis=dict(
+                            showgrid=True,
+                            gridcolor='#F0F0F0',
+                            title='Valor (R$)',
+                            tickprefix='R$ ',
+                            tickformat=',.0f'
+                        ),
+                        legend=dict(
+                            orientation='h',
+                            yanchor='bottom',
+                            y=1.02,
+                            xanchor='right',
+                            x=1
+                        ),
+                        hovermode='x unified'
+                    )
+
+                    st.plotly_chart(fig_evolucao_ob, width="stretch")
+                    st.markdown("<br>", unsafe_allow_html=True)
+
+                st.markdown("##### 📋 Detalhamento Individual das Ordens Bancárias")
+                def format_date_br(val):
+                    try:
+                        if pd.notna(val) and str(val).strip():
+                            dt = pd.to_datetime(val)
+                            return dt.strftime('%d/%m/%Y')
+                    except Exception:
+                        pass
+                    return str(val) if pd.notna(val) else "-"
+                
+                df_ob_show = pd.DataFrame()
+                df_ob_show['Data Pagamento'] = muni_ob_sorted['data_pagamento'].apply(format_date_br)
+                df_ob_show['Ordem Bancária'] = muni_ob_sorted['orden_bancaria']
+                df_ob_show['Valor (R$)'] = muni_ob_sorted['valor_num']
+                df_ob_show['Banco'] = muni_ob_sorted['banco'].fillna("-")
+                df_ob_show['Agência'] = muni_ob_sorted['agencia'].fillna("-")
+                df_ob_show['Conta Corrente'] = muni_ob_sorted['conta_corrente'].fillna("-")
+                df_ob_show['Número da Emenda'] = muni_ob_sorted['numero_emenda'].fillna("-")
+                df_ob_show['Código do Plano'] = muni_ob_sorted['codigo_plano_acao'].fillna("-")
+                df_ob_show['Autor da Emenda'] = muni_ob_sorted['autor_emenda'].fillna("-")
+                
+                st.dataframe(
+                    df_ob_show,
+                    column_config={
+                        'Valor (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
+                    },
+                    width="stretch",
+                    hide_index=True
+                )
+                    
+        # ----------------- ABA 3: EMPENHOS DE OBRAS E MAT. PERMANENTES -----------------
         with tab_obras:
             st.subheader("Empenhos de Obras e Mat. Permanentes")
             if muni_tce_df.empty:

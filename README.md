@@ -54,7 +54,7 @@ O painel oferece dois modos de navegação na barra lateral esquerda:
 
 ### 📍 1. Visão por Município
 
-Ao selecionar **"📍 Visão por Município"**, o painel organiza a análise local através de 4 abas especializadas:
+Ao selecionar **"📍 Visão por Município"**, o painel organiza a análise local através de 5 abas especializadas:
 
 #### Aba 1: 📂 Emendas & Parlamentares
 
@@ -82,13 +82,19 @@ Ao selecionar **"📍 Visão por Município"**, o painel organiza a análise loc
 </p>
 </div>
 
-#### Aba 2: 🚧 Empenhos de Obras e Mat. Permanentes
+#### Aba 2: 🏦 Ordens Bancárias Recebidas
+
+- **Cards de Métricas (KPIs)**: Total financeiro creditado via Ordens Bancárias (OB), contagem de ordens emitidas e contas correntes contempladas.
+- **Gráfico de Evolução Anual e Acumulada**: Barras azuis indicando o montante anual recebido combinadas a uma curva suave (*spline*) com preenchimento translúcido que detalha a evolução contínua do total acumulado.
+- **Tabela Cronológica**: Listagem individual de cada ordem bancária creditada em ordem estritamente crescente de data de pagamento, com número da OB, valor (R$), banco, agência, conta corrente, número da emenda e parlamentar autor.
+
+#### Aba 3: 🚧 Empenhos de Obras e Mat. Permanentes
 
 - Tabela com os empenhos emitidos pela prefeitura vinculados a recursos de transferências especiais da União.
 - Estruturação completa: número da licitação, código do contrato, datas, credor fornecedor e valores de empenho, liquidação e pagamento.
 - Histórico textual detalhado do empenho para auditoria e fiscalização.
 
-#### Aba 3: 🏢 Empresas Contratadas
+#### Aba 4: 🏢 Empresas Contratadas
 
 <div>
 <p align="center">
@@ -99,7 +105,7 @@ Ao selecionar **"📍 Visão por Município"**, o painel organiza a análise loc
 - **Lista de Empresas Habilitadas e Contratadas (TCE-SC)**: Total empenhado, liquidado e pago, com documentos (CNPJ/CPF) padronizados e quantidade de processos.
 - **Pagamentos às Empresas (Extratos Bancários - Transferegov)**: Saídas reais debitadas da conta corrente da emenda com ranking das Top 5 empresas beneficiárias no município.
 
-#### Aba 4: 📝 Detalhes e Histórico Textual
+#### Aba 5: 📝 Detalhes e Histórico Textual
 
 - Pesquisa textual rápida de empenhos e credores por palavras-chave (ex.: asfalto, creche, reforma).
 - Cartões com valor empenhado e pago, busca direta no Google e links externos para portais de transparência.
@@ -143,12 +149,14 @@ Ao selecionar uma empresa específica no seletor da barra lateral:
 painel-emendas/
 ├── dados/
 │   ├── emendas_sc.csv                                                  # Cadastro de emendas RP6 recebidas com dados bancários
+│   ├── ordens_bancarias_sc.csv                                         # Ordens bancárias creditadas por conta de emenda (Transferegov)
 │   ├── pagamentos_pj.csv                                               # Base consolidada de pagamentos efetuados a PJs (extratos)
 │   ├── TCE_empenhos_obras_mat_permanentes_tranferencias_especiais.xlsx # Empenhos de obras e materiais permanentes de SC
 │   ├── TCE_licitacoes_obras.xlsx                                       # Cadastro de licitações de obras de SC
 │   └── municipios_sc.csv                                               # Coordenadas geográficas dos municípios de SC
 ├── app.py                                              # Aplicação principal Streamlit
 ├── atualizar_pagamentos_pj.py                           # Script de coleta e sincronização com a API Transferegov
+├── exportar_ordens_bancarias_sc.py                     # Script independente de extração de ordens bancárias (API Transferegov)
 ├── requirements.txt                                    # Dependências Python do projeto
 ├── CHANGELOG.md                                        # Histórico detalhado de versões
 ├── LICENSE                                             # Licença de uso (MIT)
@@ -194,7 +202,9 @@ streamlit run app.py
 
 O painel será aberto automaticamente no endereço: [http://localhost:8501](http://localhost:8501).
 
-### 2. Sincronizar Base de Pagamentos (Opcional)
+> **Nota:** A aplicação verifica automaticamente a idade do arquivo `dados/ordens_bancarias_sc.csv` na inicialização e dispara sua atualização caso tenha mais de 30 dias de criação.
+
+### 2. Sincronizar Base de Pagamentos PJ (Opcional)
 
 Para atualizar a base local `dados/pagamentos_pj.csv` com novos lançamentos de extrato e novas emendas da API do Transferegov:
 
@@ -209,11 +219,24 @@ python atualizar_pagamentos_pj.py --dias-expiracao 15
 python atualizar_pagamentos_pj.py --forcar
 ```
 
+### 3. Extrair Ordens Bancárias Manualmente (Opcional)
+
+O script `exportar_ordens_bancarias_sc.py` roda de maneira 100% autônoma e pode ser acionado a qualquer momento para reconstruir o arquivo de ordens bancárias de SC:
+
+```bash
+# Execução padrão (salva em dados/ordens_bancarias_sc.csv):
+python exportar_ordens_bancarias_sc.py
+
+# Definir caminho alternativo de saída ou delimitador:
+python exportar_ordens_bancarias_sc.py --output meu_arquivo.csv --delimitador ";"
+```
+
 ---
 
 ## 📊 Fontes de Dados
 
 - **Emendas Parlamentares RP6**: Portal de Dados Abertos do Transferegov (Ministério da Gestão e da Inovação em Serviços Públicos).
+- **Ordens Bancárias Creditadas em Conta (OBs)**: APIs oficiais de Transferências Especiais do Transferegov (`plano_acao_especial`, `empenho_especial`, `documento_habil_especial`, `ordem_pagamento_ordem_bancaria_especial`), consolidadas em `dados/ordens_bancarias_sc.csv`.
 - **Pagamentos a Pessoas Jurídicas (Extratos)**: Base consolidada de pagamentos de transferências especiais da União a credores PJ (`pagamentos_pj.csv`), extraída das contas correntes oficiais da API do Transferegov.
 - **Empenhos de Obras e Materiais Permanentes (TCE-SC)**: Planilha `TCE_empenhos_obras_mat_permanentes_tranferencias_especiais.xlsx` extraída do **Portal Farol do TCE-SC**. Contém todos os empenhos dos municípios catarinenses que tiveram como fonte de recursos as Transferências Especiais da União (Emendas PIX) e foram aplicados em obras ou materiais permanentes.
 - **Licitações Municipais de Santa Catarina**: Portal de Contas Públicas do Tribunal de Contas do Estado de Santa Catarina (TCE-SC).

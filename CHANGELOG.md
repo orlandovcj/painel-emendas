@@ -4,6 +4,27 @@ Todo o histórico de alterações deste projeto será documentado neste arquivo.
 
 O formato é baseado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue a convenção de [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.9.0] - 2026-10-13
+
+### Adicionado
+
+- **Nova Aba: 🏦 Ordens Bancárias Recebidas na Visão por Município**:
+  - Posicionada estrategicamente entre as abas *📂 Emendas & Parlamentares* e *🚧 Empenhos de Obras e Mat. Permanentes*.
+  - **Cards de Métricas (KPIs)**: Indicadores consolidados de *Total Creditado em OBs (R$)*, *Quantidade de Ordens Bancárias* e *Contas Correntes Contempladas*.
+  - **Gráfico Combinado de Barras e Linha Suavizada (*Spline*)**:
+    - Barras anuais em azul indicando o montante creditado em cada exercício.
+    - Curva suavizada em verde esmeralda com preenchimento translúcido (*fill tozeroy*) demonstrando a evolução contínua do total acumulado.
+  - **Tabela Detalhada em Ordem Crescente de Data**:
+    - Apresentação completa e formatada de cada ordem bancária creditada: *Data de Pagamento (DD/MM/AAAA)*, *Ordem Bancária*, *Valor (R$)*, *Banco*, *Agência*, *Conta Corrente*, *Número da Emenda*, *Código do Plano de Ação* e *Autor da Emenda*.
+- **Script Único e Independente de Extração (`exportar_ordens_bancarias_sc.py`)**:
+  - Script autônomo que consome as APIs públicas do Transferegov para extrair as ordens bancárias creditadas por conta-corrente de emendas parlamentares em Santa Catarina.
+  - Filtro estrito para municípios catarinenses (exclusão do CNPJ do Governo do Estado).
+  - Consultas em lote paralelizadas (`ThreadPoolExecutor`), extraindo todas as mais de 3.300 OBs de SC em segundos.
+  - Geração padronizada da base `dados/ordens_bancarias_sc.csv`.
+- **Rotina de Atualização Mensal Integrada à Aplicação**:
+  - Verificação automática durante o carregamento de dados em `app.py`, chamando a rotina de extração caso o arquivo `dados/ordens_bancarias_sc.csv` possua mais de 30 dias desde a última geração.
+  - Adição do indicador de data da última ordem bancária no bloco de *Última Atualização* da barra lateral.
+
 ---
 
 ## [1.8.1] - 2026-10-07
