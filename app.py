@@ -270,6 +270,51 @@ def fetch_financial_transfers(cnpj_muni, banco_codigo, agencia, conta):
     except Exception as e:
         return None
 
+# Função para identificar se uma movimentação do extrato é aplicação ou resgate financeiro
+def is_financial_investment_or_redemption(tx):
+    """
+    Identifica se a movimentação bancária da API Transferegov corresponde a aplicação
+    ou resgate de aplicação financeira (fundos, BB-APLIC, BB Fix, poupança, etc.),
+    que não devem ser contabilizados como repasses federais ou pagamentos do município.
+    """
+    if not isinstance(tx, dict):
+        return False
+        
+    def _norm(text):
+        if not isinstance(text, str):
+            return ""
+        t = unicodedata.normalize('NFKD', text).encode('ASCII', 'ignore').decode('ASCII').upper()
+        return " ".join(t.split())
+
+    desc = _norm(tx.get('descricao_gestao_financeira') or '')
+    fav = _norm(tx.get('nome_favorecido_gestao_financeira') or '')
+    dep = _norm(tx.get('nome_depositante_gestao_financeira') or '')
+    
+    # 1. Padrões de Resgate na descrição bancária
+    if any(k in desc for k in [
+        'RESGATE', 'RESG AUTOM', 'RESG.AUTOM', 'RESG.', 'RESG ', 
+        'RSG FUNDO', 'RSG.', 'RSG ', 'BB-RESGATE'
+    ]):
+        return True
+
+    # 2. Padrões de Aplicação na descrição bancária (e estornos/ajustes diários)
+    if any(k in desc for k in [
+        'BB-APLIC', 'APLIC', 'APL AUTOM', 'APL.AUT', 'APL FUNDO', 'APL POUP', 'APL.',
+        'INVESTIMENTO', 'INVEST', 'BB FIX', 'POUPANCA', 'ESTORNO RESGATE', 'ESTORNO RESG',
+        'MOVIMENTO DO DIA'
+    ]):
+        return True
+
+    # 3. Favorecido ou Depositante sendo instituição gestora de fundos ou DTVM
+    for agent in [fav, dep]:
+        if any(f in agent for f in [
+            'DTVM', 'DISTRIBUIDORA DE TITULOS', 'FUNDO DE INVESTIMENTO', 
+            'GESTAO DE RECURSOS', 'BB GESTAO'
+        ]):
+            return True
+            
+    return False
+
 # Função para limpar texto para comparação de similaridade
 def clean_text_for_similarity(text):
     if not isinstance(text, str):
@@ -474,9 +519,10 @@ def load_data():
     df_tce['nr_licitacao'] = df_tce[lic_col].astype(str)
     
     # Converter data
-    df_tce['data_empenho'] = pd.to_datetime(df_tce[data_col], errors='coerce').dt.strftime('%d/%m/%Y')
+    df_tce['data_empenho_dt'] = pd.to_datetime(df_tce[data_col], errors='coerce')
+    df_tce['data_empenho'] = df_tce['data_empenho_dt'].dt.strftime('%d/%m/%Y')
     
-    df_tce_clean = df_tce[['Ente', 'municipio_norm', 'num_empenho', 'ano_empenho', 'data_empenho', 
+    df_tce_clean = df_tce[['Ente', 'municipio_norm', 'num_empenho', 'ano_empenho', 'data_empenho', 'data_empenho_dt',
                            'credor', 'cnpj_cpf', 'nr_licitacao', 'valor_empenhado', 
                            'valor_liquidado', 'valor_pago', 'historico']].copy()
 
@@ -1618,17 +1664,20 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
                 parts = [p.strip() for p in re.split(r'\s+/\s+', str(val))]
                 return parts[1] if len(parts) > 1 else "Sem Info"
                 
-            df_tce_emp_show = comp_tce[['num_empenho', 'ano_empenho', 'Ente', 'data_empenho', 'nr_licitacao', 'historico', 'valor_empenhado', 'valor_pago']].copy()
+            df_tce_emp_show = comp_tce[['num_empenho', 'ano_empenho', 'Ente', 'nr_licitacao', 'historico', 'valor_empenhado', 'valor_pago']].copy()
+            df_tce_emp_show['Data'] = comp_tce['data_empenho_dt'] if 'data_empenho_dt' in comp_tce.columns else pd.to_datetime(comp_tce['data_empenho'], dayfirst=True, errors='coerce')
             df_tce_emp_show['Licitação'] = df_tce_emp_show['nr_licitacao'].apply(split_lic)
             df_tce_emp_show['Contrato'] = df_tce_emp_show['nr_licitacao'].apply(split_cont)
             df_tce_emp_show = df_tce_emp_show.drop(columns=['nr_licitacao'])
-            df_tce_emp_show.columns = ['Nº Empenho', 'Ano', 'Município', 'Data', 'Descrição do Objeto', 'Vl. Empenhado (R$)', 'Vl. Pago (R$)', 'Licitação', 'Contrato']
+            df_tce_emp_show.columns = ['Nº Empenho', 'Ano', 'Município', 'Descrição do Objeto', 'Vl. Empenhado (R$)', 'Vl. Pago (R$)', 'Data', 'Licitação', 'Contrato']
             df_tce_emp_show = df_tce_emp_show[['Nº Empenho', 'Ano', 'Município', 'Data', 'Licitação', 'Contrato', 'Descrição do Objeto', 'Vl. Empenhado (R$)', 'Vl. Pago (R$)']]
             df_tce_emp_show['Vl. Empenhado (R$)'] = df_tce_emp_show['Vl. Empenhado (R$)'].astype(float).round(2)
             df_tce_emp_show['Vl. Pago (R$)'] = df_tce_emp_show['Vl. Pago (R$)'].astype(float).round(2)
+            df_tce_emp_show = df_tce_emp_show.sort_values(by='Data', ascending=False)
             st.dataframe(
                 df_tce_emp_show,
                 column_config={
+                    'Data': st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
                     'Vl. Empenhado (R$)': st.column_config.NumberColumn(format="localized", step=0.01),
                     'Vl. Pago (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
                 },
@@ -1640,7 +1689,7 @@ def render_company_panel(df_pag_in, df_tce_in, df_coords_in):
 # ----------------- RENDERIZAÇÃO DA INTERFACE PRINCIPAL -----------------
 
 st.markdown("<h1 class='main-title'>Painel de Emendas PIX (RP6) - Santa Catarina</h1>", unsafe_allow_html=True)
-st.markdown("<div style='font-size: 0.85rem; color: #64748b; margin-top: -15px; margin-bottom: 15px; font-weight: 500;'>Versão 1.9.0</div>", unsafe_allow_html=True)
+st.markdown("<div style='font-size: 0.85rem; color: #64748b; margin-top: -15px; margin-bottom: 15px; font-weight: 500;'>Versão 1.9.1</div>", unsafe_allow_html=True)
 st.markdown("##### Cruzamento de dados de Transferências Especiais da União (Emendas PIX), Obras e Mat. Permanentes (TCE-SC).")
 
 # Se estiver no modo de análise por Empresa
@@ -2046,10 +2095,11 @@ else:
                         
                         tx_list = fin_data['data']
                         
-                        # Calcular resumos
-                        total_creditos = sum([tx['valor_gestao_financeira'] for tx in tx_list if tx['tipo_operacao_gestao_financeira'] == 'C'])
-                        total_debitos = sum([tx['valor_gestao_financeira'] for tx in tx_list if tx['tipo_operacao_gestao_financeira'] == 'D'])
-                        saldo_final = total_creditos - total_debitos
+                        # Calcular resumos desconsiderando aplicações e resgates financeiros
+                        tx_reais = [tx for tx in tx_list if not is_financial_investment_or_redemption(tx)]
+                        total_creditos = sum([tx['valor_gestao_financeira'] for tx in tx_reais if tx['tipo_operacao_gestao_financeira'] == 'C'])
+                        total_debitos = sum([tx['valor_gestao_financeira'] for tx in tx_reais if tx['tipo_operacao_gestao_financeira'] == 'D'])
+                        saldo_final = max(0.0, total_creditos - total_debitos)
                         
                         # Renderizar KPIs consolidados
                         col_k1, col_k2, col_k3 = st.columns(3)
@@ -2058,6 +2108,7 @@ else:
                             <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
                                 <div style="font-size: 0.72rem; color: #15803d; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">Total Recebido (Créditos)</div>
                                 <div style="font-size: 1.2rem; font-weight: 700; color: #166534; margin-top: 5px;">{format_currency(total_creditos)}</div>
+                                <div style="font-size: 0.68rem; color: #16a34a; margin-top: 4px; opacity: 0.85;">(repasses reais / exclui resgates)</div>
                             </div>
                             """, unsafe_allow_html=True)
                         with col_k2:
@@ -2065,6 +2116,7 @@ else:
                             <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
                                 <div style="font-size: 0.72rem; color: #b91c1c; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">Total Retirado (Débitos)</div>
                                 <div style="font-size: 1.2rem; font-weight: 700; color: #991b1b; margin-top: 5px;">{format_currency(total_debitos)}</div>
+                                <div style="font-size: 0.68rem; color: #dc2626; margin-top: 4px; opacity: 0.85;">(pagamentos reais / exclui aplicações)</div>
                             </div>
                             """, unsafe_allow_html=True)
                         with col_k3:
@@ -2075,9 +2127,11 @@ else:
                             <div style="background-color: {bg_color}; border: 1px solid {border_color}; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
                                 <div style="font-size: 0.72rem; color: {text_color}; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">Saldo da Conta</div>
                                 <div style="font-size: 1.2rem; font-weight: 700; color: {text_color}; margin-top: 5px;">{format_currency(saldo_final)}</div>
+                                <div style="font-size: 0.68rem; color: {text_color}; margin-top: 4px; opacity: 0.85;">(disponível para execução)</div>
                             </div>
                             """, unsafe_allow_html=True)
                             
+                        st.caption("ℹ️ *Os indicadores acima desconsideram aplicações e resgates automáticos de fundos de investimento para evitar distorções no saldo e refletir estritamente os repasses recebidos e pagamentos executados.*")
                         st.markdown("<br>", unsafe_allow_html=True)
                         
                         # --- ALERTA: TRANSFERÊNCIAS PARA OUTRAS CONTAS DA PREFEITURA (MESMA TITULARIDADE) ---
@@ -2154,7 +2208,7 @@ else:
                             with st.expander(f"📋 Ver detalhamento das {qtd_transf} transferências para contas da Prefeitura"):
                                 rows_transf = []
                                 for t in tx_muni_transfers:
-                                    dt = pd.to_datetime(t.get('data_lancamento_gestao_financeira')).strftime('%d/%m/%Y') if t.get('data_lancamento_gestao_financeira') else "-"
+                                    dt = pd.to_datetime(t.get('data_lancamento_gestao_financeira')) if t.get('data_lancamento_gestao_financeira') else None
                                     vl = float(t.get('valor_gestao_financeira') or 0.0)
                                     ds = t.get('descricao_gestao_financeira') or "Transferência"
                                     b_cod = "".join([c for c in str(t.get('codigo_banco_favorecido_gestao_financeira') or '') if c.isdigit()])
@@ -2170,9 +2224,13 @@ else:
                                         'Conta Destino': cc if cc else "-"
                                     })
                                 df_transf_show = pd.DataFrame(rows_transf)
+                                if not df_transf_show.empty and 'Data' in df_transf_show.columns:
+                                    df_transf_show['Data'] = pd.to_datetime(df_transf_show['Data'], errors='coerce')
+                                    df_transf_show = df_transf_show.sort_values(by='Data', ascending=False)
                                 st.dataframe(
                                     df_transf_show,
                                     column_config={
+                                        'Data': st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
                                         'Valor (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
                                     },
                                     width="stretch",
@@ -2185,7 +2243,7 @@ else:
                         df_tx = pd.DataFrame(tx_list)
                         df_tx_show = pd.DataFrame()
                         
-                        df_tx_show['Data'] = pd.to_datetime(df_tx['data_lancamento_gestao_financeira']).dt.strftime('%d/%m/%Y')
+                        df_tx_show['Data'] = pd.to_datetime(df_tx['data_lancamento_gestao_financeira'], errors='coerce')
                         df_tx_show['Operação'] = df_tx['tipo_operacao_gestao_financeira'].apply(
                             lambda x: "🟢 Crédito" if x == 'C' else "🔴 Débito"
                         )
@@ -2229,6 +2287,7 @@ else:
                         st.dataframe(
                             df_tx_show[['Data', 'Operação', 'Descrição', 'Origem/Destino', 'CNPJ/CPF', 'Valor (R$)']],
                             column_config={
+                                'Data': st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
                                 'Valor (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
                             },
                             width="stretch",
@@ -2549,17 +2608,8 @@ else:
                     st.markdown("<br>", unsafe_allow_html=True)
 
                 st.markdown("##### 📋 Detalhamento Individual das Ordens Bancárias")
-                def format_date_br(val):
-                    try:
-                        if pd.notna(val) and str(val).strip():
-                            dt = pd.to_datetime(val)
-                            return dt.strftime('%d/%m/%Y')
-                    except Exception:
-                        pass
-                    return str(val) if pd.notna(val) else "-"
-                
                 df_ob_show = pd.DataFrame()
-                df_ob_show['Data Pagamento'] = muni_ob_sorted['data_pagamento'].apply(format_date_br)
+                df_ob_show['Data Pagamento'] = muni_ob_sorted['data_dt'] if 'data_dt' in muni_ob_sorted.columns else pd.to_datetime(muni_ob_sorted['data_pagamento'], errors='coerce')
                 df_ob_show['Ordem Bancária'] = muni_ob_sorted['orden_bancaria']
                 df_ob_show['Valor (R$)'] = muni_ob_sorted['valor_num']
                 df_ob_show['Banco'] = muni_ob_sorted['banco'].fillna("-")
@@ -2568,10 +2618,12 @@ else:
                 df_ob_show['Número da Emenda'] = muni_ob_sorted['numero_emenda'].fillna("-")
                 df_ob_show['Código do Plano'] = muni_ob_sorted['codigo_plano_acao'].fillna("-")
                 df_ob_show['Autor da Emenda'] = muni_ob_sorted['autor_emenda'].fillna("-")
+                df_ob_show = df_ob_show.sort_values(by='Data Pagamento', ascending=False)
                 
                 st.dataframe(
                     df_ob_show,
                     column_config={
+                        'Data Pagamento': st.column_config.DateColumn("Data Pagamento", format="DD/MM/YYYY"),
                         'Valor (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
                     },
                     width="stretch",
@@ -2609,8 +2661,9 @@ else:
                     st.warning("Nenhum empenho para o filtro selecionado.")
                 else:
                     # Mostrar tabela customizada de empenhos
-                    df_tce_show = df_obras_filtered[['num_empenho', 'ano_empenho', 'data_empenho', 'credor', 
+                    df_tce_show = df_obras_filtered[['num_empenho', 'ano_empenho', 'credor', 
                                                      'valor_empenhado', 'valor_pago', 'codigo_emenda', 'nr_licitacao', 'historico']].copy()
+                    df_tce_show['Data'] = df_obras_filtered['data_empenho_dt'] if 'data_empenho_dt' in df_obras_filtered.columns else pd.to_datetime(df_obras_filtered['data_empenho'], dayfirst=True, errors='coerce')
                     
                     # Funções de extração local para licitação e contrato
                     def split_lic(val):
@@ -2629,8 +2682,8 @@ else:
                     )
                     
                     df_tce_show = df_tce_show.drop(columns=['codigo_emenda', 'nr_licitacao'])
-                    df_tce_show.columns = ['Nº Empenho', 'Ano', 'Data', 'Empresa Contratada', 
-                                           'Vl. Empenhado (R$)', 'Vl. Pago (R$)', 'Descrição do Objeto', 'Licitação', 'Contrato', 'Origem/Vínculo']
+                    df_tce_show.columns = ['Nº Empenho', 'Ano', 'Empresa Contratada', 
+                                           'Vl. Empenhado (R$)', 'Vl. Pago (R$)', 'Descrição do Objeto', 'Data', 'Licitação', 'Contrato', 'Origem/Vínculo']
                     
                     # Reordenar colunas
                     df_tce_show = df_tce_show[['Nº Empenho', 'Ano', 'Data', 'Empresa Contratada', 
@@ -2638,10 +2691,12 @@ else:
                     
                     df_tce_show['Vl. Empenhado (R$)'] = df_tce_show['Vl. Empenhado (R$)'].astype(float).round(2)
                     df_tce_show['Vl. Pago (R$)'] = df_tce_show['Vl. Pago (R$)'].astype(float).round(2)
+                    df_tce_show = df_tce_show.sort_values(by='Data', ascending=False)
                     
                     st.dataframe(
                         df_tce_show,
                         column_config={
+                            'Data': st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
                             'Vl. Empenhado (R$)': st.column_config.NumberColumn(format="localized", step=0.01),
                             'Vl. Pago (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
                         },

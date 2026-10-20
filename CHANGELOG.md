@@ -4,6 +4,27 @@ Todo o histórico de alterações deste projeto será documentado neste arquivo.
 
 O formato é baseado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue a convenção de [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.9.1] - 2026-10-20
+
+### Corrigido
+
+- **Expurgo de Aplicações e Resgates Financeiros dos KPIs do Extrato da Conta Corrente (API Transferegov)**:
+  - Implementada a função `is_financial_investment_or_redemption()` para detectar e desconsiderar movimentações de fundos de investimento automático e resgates (`BB-APLIC`, `APL AUTOM`, `BB Fix`, `RESGATE AUTOMATICO`, `RSG FUNDO`, etc.).
+  - Os indicadores de **Total Recebido (Créditos)** e **Total Retirado (Débitos)** agora refletem com precisão estritamente os repasses federais e pagamentos municipais reais, eliminando duplicidades e distorções causadas pelas rotinas bancárias diárias de aplicação e resgate automático.
+  - O cálculo do **Saldo da Conta** agora expressa a real disponibilidade de recursos da emenda para execução (`max(0.0, total_creditos - total_debitos)`), evitando saldos zerados artificialmente enquanto os recursos ainda aguardam execução aplicados em fundos ou saldos negativos caso rendimentos financeiros tenham sido utilizados.
+  - Adicionados textos orientativos e legendas nos cards e na interface explicitando o expurgo dos valores de aplicação/resgate.
+- **Ordenação Cronológica das Tabelas com Datas no Streamlit**:
+  - Correção na tipagem das colunas de data em várias tabelas do painel que estavam sendo tratadas como strings pré-formatadas (`DD/MM/AAAA`), o que gerava ordenação alfabética incorreta (ex.: datas com dia 31 apareciam antes de datas mais recentes iniciadas por dia 01).
+  - Conversão dos campos para o tipo datetime nativo (`datetime64[ns]`) associado à configuração `st.column_config.DateColumn("Data", format="DD/MM/YYYY")`.
+  - Tabelas corrigidas e com suporte total à ordenação cronológica interativa (crescente/decrescente):
+    1. **Movimentações Financeiras da Conta Corrente (Transferegov API)** (Visão por Município);
+    2. **Detalhamento das Transferências para Contas da Prefeitura** (Visão por Município - Alerta);
+    3. **📋 Detalhamento Individual das Ordens Bancárias** (Visão por Município - Aba *Ordens Bancárias Recebidas*);
+    4. **Empenhos de Obras e Mat. Permanentes** (Visão por Município - Aba *Empenhos de Obras e Mat. Permanentes*);
+    5. **Processos Licitatórios, Contratos e Empenhos Registrados no TCE-SC** (Visão por Empresa - Aba *Obras e Contratos Detalhados*).
+
+---
+
 ## [1.9.0] - 2026-10-13
 
 ### Adicionado
