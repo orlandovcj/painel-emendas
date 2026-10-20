@@ -1849,6 +1849,7 @@ else:
         muni_emendas_df = df_emendas[df_emendas['municipio_norm'] == muni_norm].copy()
         muni_tce_df = df_tce[df_tce['municipio_norm'] == muni_norm].copy()
         muni_pag_df = df_pag[df_pag['municipio_norm'] == muni_norm].copy()
+        muni_ob_df = df_ob[df_ob['municipio_norm'] == muni_norm].copy() if not df_ob.empty else pd.DataFrame()
         
         # Título da Seção do Município
         st.markdown("---")
@@ -2080,297 +2081,402 @@ else:
                     # --- SEÇÃO DE LANÇAMENTOS FINANCEIROS (EXTRATO) ---
                     pjs_paid_cnpjs = set()
                     fin_data = None
-                    if banco_codigo and agencia_para_extrato and conta_para_extrato:
-                        with st.spinner("Carregando lançamentos financeiros..."):
-                            fin_data = fetch_financial_transfers(
-                                selected_cnpj,
-                                banco_codigo,
-                                agencia_para_extrato,
-                                conta_para_extrato
-                            )
-                            
-                    if fin_data and 'data' in fin_data and fin_data['data']:
+                    
+                    # 1. Verificar se a emenda selecionada recebeu recursos via Ordem Bancária (OB)
+                    selected_code_clean = "".join([c for c in str(selected_code).split('.')[0] if c.isdigit()])
+                    plano_clean = str(id_plano_acao or offline_plano_acao or '').strip()
+
+                    emenda_obs = pd.DataFrame()
+                    if not muni_ob_df.empty:
+                        emenda_obs = muni_ob_df[
+                            (muni_ob_df['numero_emenda'].astype(str).str.strip() == selected_code_clean) |
+                            ((muni_ob_df['codigo_plano_acao'].astype(str).str.strip() == plano_clean) & (plano_clean != ''))
+                        ].copy()
+
+                    has_ob = (not emenda_obs.empty and len(emenda_obs) > 0) if not df_ob.empty else True
+
+                    # 2. Verificar se a conta bancária é compartilhada com outras emendas no município
+                    def get_account_digits(acc_val, acc_sem_dv=None):
+                        if acc_sem_dv is not None and pd.notna(acc_sem_dv) and str(acc_sem_dv).strip() != "":
+                            d = "".join([c for c in str(acc_sem_dv).split('.')[0] if c.isdigit()])
+                            if d:
+                                return d
+                        if acc_val is not None and pd.notna(acc_val):
+                            acc_str = str(acc_val).strip()
+                            if '-' in acc_str:
+                                acc_str = acc_str.split('-')[0]
+                            elif '/' in acc_str:
+                                acc_str = acc_str.split('/')[0]
+                            d = "".join([c for c in acc_str.split('.')[0] if c.isdigit()])
+                            if d:
+                                return d
+                        return ""
+
+                    clean_curr_acc = get_account_digits(
+                        acc_val=offline_conta,
+                        acc_sem_dv=conta_para_extrato or offline_conta_sem_dv
+                    )
+                    outras_emendas_mesma_conta = []
+                    if clean_curr_acc:
+                        for _, other_row in muni_emendas_df.iterrows():
+                            other_code = str(other_row['codigo_emenda']).strip()
+                            if other_code != selected_code_clean:
+                                other_acc = get_account_digits(
+                                    other_row.get('conta_corrente'),
+                                    other_row.get('conta_corrente_sem_dv')
+                                )
+                                if other_acc and other_acc == clean_curr_acc:
+                                    outras_emendas_mesma_conta.append(other_code)
+                    is_conta_compartilhada = len(outras_emendas_mesma_conta) > 0
+
+                    if not has_ob:
                         st.markdown("<br>", unsafe_allow_html=True)
                         st.markdown("##### 💸 Movimentações Financeiras da Conta Corrente (Transferegov API)")
-                        
-                        tx_list = fin_data['data']
-                        
-                        # Calcular resumos desconsiderando aplicações e resgates financeiros
-                        tx_reais = [tx for tx in tx_list if not is_financial_investment_or_redemption(tx)]
-                        total_creditos = sum([tx['valor_gestao_financeira'] for tx in tx_reais if tx['tipo_operacao_gestao_financeira'] == 'C'])
-                        total_debitos = sum([tx['valor_gestao_financeira'] for tx in tx_reais if tx['tipo_operacao_gestao_financeira'] == 'D'])
-                        saldo_final = max(0.0, total_creditos - total_debitos)
-                        
-                        # Renderizar KPIs consolidados
-                        col_k1, col_k2, col_k3 = st.columns(3)
-                        with col_k1:
-                            st.markdown(f"""
-                            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
-                                <div style="font-size: 0.72rem; color: #15803d; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">Total Recebido (Créditos)</div>
-                                <div style="font-size: 1.2rem; font-weight: 700; color: #166534; margin-top: 5px;">{format_currency(total_creditos)}</div>
-                                <div style="font-size: 0.68rem; color: #16a34a; margin-top: 4px; opacity: 0.85;">(repasses reais / exclui resgates)</div>
+
+                        msg_compartilhada = (
+                            f" (mesmo que a conta corrente cadastrada <b>{conta_display}</b> seja compartilhada com a(s) emenda(s) "
+                            f"<b>{', '.join(outras_emendas_mesma_conta)}</b> do município)"
+                        ) if is_conta_compartilhada else ""
+
+                        st.markdown(f"""
+                        <div style="
+                            background: #f8fafc;
+                            border: 1.5px solid #cbd5e1;
+                            border-left: 6px solid #64748b;
+                            border-radius: 12px;
+                            padding: 18px 22px;
+                            margin-top: 10px;
+                            margin-bottom: 20px;
+                            box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+                        ">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="font-size: 1.4rem;">📭</span>
+                                <span style="font-size: 1.05rem; font-weight: 700; color: #1e293b;">
+                                    Sem Liberação de Recursos (Nenhuma Ordem Bancária Emitida)
+                                </span>
                             </div>
-                            """, unsafe_allow_html=True)
-                        with col_k2:
-                            st.markdown(f"""
-                            <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
-                                <div style="font-size: 0.72rem; color: #b91c1c; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">Total Retirado (Débitos)</div>
-                                <div style="font-size: 1.2rem; font-weight: 700; color: #991b1b; margin-top: 5px;">{format_currency(total_debitos)}</div>
-                                <div style="font-size: 0.68rem; color: #dc2626; margin-top: 4px; opacity: 0.85;">(pagamentos reais / exclui aplicações)</div>
+                            <div style="font-size: 0.92rem; color: #475569; margin-top: 8px; line-height: 1.55;">
+                                Não foi identificado nenhum crédito de recurso federal por meio de <b>Ordem Bancária (OB)</b> para a emenda <b>{selected_code}</b>. 
+                                Consequentemente, não há movimentações financeiras a serem exibidas para esta emenda{msg_compartilhada}.
                             </div>
-                            """, unsafe_allow_html=True)
-                        with col_k3:
-                            bg_color = "#f0fdfa" if saldo_final >= 0 else "#fff7ed"
-                            border_color = "#99f6e4" if saldo_final >= 0 else "#ffedd5"
-                            text_color = "#115e59" if saldo_final >= 0 else "#9a3412"
-                            st.markdown(f"""
-                            <div style="background-color: {bg_color}; border: 1px solid {border_color}; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
-                                <div style="font-size: 0.72rem; color: {text_color}; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">Saldo da Conta</div>
-                                <div style="font-size: 1.2rem; font-weight: 700; color: {text_color}; margin-top: 5px;">{format_currency(saldo_final)}</div>
-                                <div style="font-size: 0.68rem; color: {text_color}; margin-top: 4px; opacity: 0.85;">(disponível para execução)</div>
+                            <div style="font-size: 0.8rem; color: #64748b; margin-top: 8px; background-color: #f1f5f9; padding: 6px 12px; border-radius: 6px; display: inline-block;">
+                                💡 <i>A movimentação do extrato bancário só é carregada para emendas que efetivamente receberam recursos do Governo Federal via Ordem Bancária.</i>
                             </div>
-                            """, unsafe_allow_html=True)
-                            
-                        st.caption("ℹ️ *Os indicadores acima desconsideram aplicações e resgates automáticos de fundos de investimento para evitar distorções no saldo e refletir estritamente os repasses recebidos e pagamentos executados.*")
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
                         st.markdown("<br>", unsafe_allow_html=True)
-                        
-                        # --- ALERTA: TRANSFERÊNCIAS PARA OUTRAS CONTAS DA PREFEITURA (MESMA TITULARIDADE) ---
-                        tx_muni_transfers = []
-                        BANCOS_MAP = {
-                            "001": "Banco do Brasil", "1": "Banco do Brasil",
-                            "104": "Caixa Econômica Federal",
-                            "041": "Banrisul", "41": "Banrisul",
-                            "237": "Bradesco",
-                            "341": "Itaú",
-                            "033": "Santander", "33": "Santander",
-                            "756": "Sicoob",
-                            "748": "Sicredi",
-                            "085": "Viacredi / Ailos", "85": "Viacredi / Ailos",
-                            "021": "Banestes", "21": "Banestes"
-                        }
-                        
-                        ente_cnpj_clean = "".join([c for c in str(selected_cnpj or '').split('.')[0] if c.isdigit()]).zfill(14)
-                        
-                        for tx in tx_list:
-                            if tx.get('tipo_operacao_gestao_financeira') == 'D':
-                                doc_raw = tx.get('doc_favorecido_gestao_financeira') or ''
-                                doc_fav = "".join([c for c in str(doc_raw).split('.')[0] if c.isdigit()]).zfill(14)
-                                fav_nome = str(tx.get('nome_favorecido_gestao_financeira') or '').upper().strip()
-                                desc_tx = str(tx.get('descricao_gestao_financeira') or '').upper().strip()
-                                
-                                is_same_tit = (
-                                    (doc_fav and ente_cnpj_clean and doc_fav == ente_cnpj_clean) or
-                                    ("MESM T" in desc_tx or "MESMA TITULARIDADE" in desc_tx or "MESMO TITULAR" in desc_tx) or
-                                    ("MUNICIPIO" in fav_nome or "PREFEITURA" in fav_nome)
-                                )
-                                if is_same_tit:
-                                    tx_muni_transfers.append(tx)
-                                    
-                        if tx_muni_transfers:
-                            tot_transf_muni = sum(float(t.get('valor_gestao_financeira') or 0.0) for t in tx_muni_transfers)
-                            qtd_transf = len(tx_muni_transfers)
-                            
-                            destinos_info = []
-                            for t in tx_muni_transfers:
-                                b_cod = "".join([c for c in str(t.get('codigo_banco_favorecido_gestao_financeira') or '') if c.isdigit()])
-                                b_nome = BANCOS_MAP.get(b_cod, f"Banco {b_cod}" if b_cod else "Banco não informado")
-                                ag = str(t.get('codigo_agencia_favorecido_gestao_financeira') or '').strip()
-                                cc = str(t.get('codigo_conta_favorecido_gestao_financeira') or '').strip()
-                                
-                                det_str = b_nome
-                                if ag and ag != "***":
-                                    det_str += f" (Ag. {ag})"
-                                if cc and cc != "***":
-                                    det_str += f" (Conta {cc})"
-                                destinos_info.append(det_str)
-                                
-                            destinos_unicos = list(dict.fromkeys(destinos_info))
-                            destinos_texto = ", ".join(destinos_unicos) if destinos_unicos else "Outra conta de titularidade da Prefeitura"
-                            
+                        st.markdown("##### 💸 Movimentações Financeiras da Conta Corrente (Transferegov API)")
+
+                        if is_conta_compartilhada:
                             st.markdown(f"""
-                            <div style="background-color: #fffbeb; border: 1.5px solid #f59e0b; border-left: 6px solid #d97706; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px;">
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span style="font-size: 1.3rem;">⚠️</span>
-                                    <span style="font-size: 1.05rem; font-weight: 800; color: #92400e;">
-                                        ALERTA: TRANSFERÊNCIA DE RECURSOS PARA OUTRA CONTA DA PREFEITURA
-                                    </span>
-                                </div>
-                                <div style="font-size: 0.95rem; color: #78350f; margin-top: 8px; line-height: 1.5;">
-                                    Foi identificado que <b>{format_currency(tot_transf_muni)}</b> ({qtd_transf} transferência{'s' if qtd_transf > 1 else ''}) 
-                                    dos recursos desta emenda foram transferidos da conta oficial da emenda para <b>outra conta da Prefeitura</b> ({destinos_texto}).
-                                </div>
-                                <div style="font-size: 0.82rem; color: #b45309; margin-top: 8px; background-color: #fef3c7; padding: 8px 12px; border-radius: 6px; border: 1px solid #fde68a;">
-                                    📌 <b>Importância do Controle</b>: Isso pode acontecer em decorrência de retençoes de tributos (IRRF, INSS, ISS, etc.). Os recursos de transferências especiais devem ser executados e pagos a fornecedores <b>diretamente a partir da conta corrente específica da emenda</b>, evitando a transferência para outras contas gerais da Prefeitura onde a rastreabilidade direta do recurso federal pode ser comprometida.
-                                </div>
+                            <div style="
+                                background-color: #eff6ff;
+                                border: 1.5px solid #bfdbfe;
+                                border-left: 5px solid #2563eb;
+                                border-radius: 10px;
+                                padding: 14px 18px;
+                                margin-top: 10px;
+                                margin-bottom: 18px;
+                                font-size: 0.9rem;
+                                color: #1e40af;
+                                line-height: 1.55;
+                                box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+                            ">
+                                ℹ️ <b>Conta Bancária Compartilhada</b>: Esta conta corrente (<b>{conta_display}</b>) também foi cadastrada para outra(s) emenda(s) do município (<b>{', '.join(outras_emendas_mesma_conta)}</b>). Como as operações financeiras em contas compartilhadas ocorrem de forma conjunta, a movimentação financeira integral da conta é exibida abaixo.
                             </div>
                             """, unsafe_allow_html=True)
+
+                        if banco_codigo and agencia_para_extrato and conta_para_extrato:
+                            with st.spinner("Carregando lançamentos financeiros..."):
+                                fin_data = fetch_financial_transfers(
+                                    selected_cnpj,
+                                    banco_codigo,
+                                    agencia_para_extrato,
+                                    conta_para_extrato
+                                )
+                                
+                        if fin_data and 'data' in fin_data and fin_data['data']:
+                            tx_list = fin_data['data']
                             
-                            with st.expander(f"📋 Ver detalhamento das {qtd_transf} transferências para contas da Prefeitura"):
-                                rows_transf = []
+                            # Calcular resumos desconsiderando aplicações e resgates financeiros
+                            tx_reais = [tx for tx in tx_list if not is_financial_investment_or_redemption(tx)]
+                            total_creditos = sum([tx['valor_gestao_financeira'] for tx in tx_reais if tx['tipo_operacao_gestao_financeira'] == 'C'])
+                            total_debitos = sum([tx['valor_gestao_financeira'] for tx in tx_reais if tx['tipo_operacao_gestao_financeira'] == 'D'])
+                            saldo_final = max(0.0, total_creditos - total_debitos)
+                            
+                            # Renderizar KPIs consolidados
+                            col_k1, col_k2, col_k3 = st.columns(3)
+                            with col_k1:
+                                st.markdown(f"""
+                                <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
+                                    <div style="font-size: 0.72rem; color: #15803d; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">Total Recebido (Créditos)</div>
+                                    <div style="font-size: 1.2rem; font-weight: 700; color: #166534; margin-top: 5px;">{format_currency(total_creditos)}</div>
+                                    <div style="font-size: 0.68rem; color: #16a34a; margin-top: 4px; opacity: 0.85;">(repasses reais / exclui resgates)</div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                            with col_k2:
+                                st.markdown(f"""
+                                <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
+                                    <div style="font-size: 0.72rem; color: #b91c1c; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">Total Retirado (Débitos)</div>
+                                    <div style="font-size: 1.2rem; font-weight: 700; color: #991b1b; margin-top: 5px;">{format_currency(total_debitos)}</div>
+                                    <div style="font-size: 0.68rem; color: #dc2626; margin-top: 4px; opacity: 0.85;">(pagamentos reais / exclui aplicações)</div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                            with col_k3:
+                                bg_color = "#f0fdfa" if saldo_final >= 0 else "#fff7ed"
+                                border_color = "#99f6e4" if saldo_final >= 0 else "#ffedd5"
+                                text_color = "#115e59" if saldo_final >= 0 else "#9a3412"
+                                st.markdown(f"""
+                                <div style="background-color: {bg_color}; border: 1px solid {border_color}; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.01);">
+                                    <div style="font-size: 0.72rem; color: {text_color}; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">Saldo da Conta</div>
+                                    <div style="font-size: 1.2rem; font-weight: 700; color: {text_color}; margin-top: 5px;">{format_currency(saldo_final)}</div>
+                                    <div style="font-size: 0.68rem; color: {text_color}; margin-top: 4px; opacity: 0.85;">(disponível para execução)</div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
+                            st.caption("ℹ️ *Os indicadores acima desconsideram aplicações e resgates automáticos de fundos de investimento para evitar distorções no saldo e refletir estritamente os repasses recebidos e pagamentos executados.*")
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            
+                            # --- ALERTA: TRANSFERÊNCIAS PARA OUTRAS CONTAS DA PREFEITURA (MESMA TITULARIDADE) ---
+                            tx_muni_transfers = []
+                            BANCOS_MAP = {
+                                "001": "Banco do Brasil", "1": "Banco do Brasil",
+                                "104": "Caixa Econômica Federal",
+                                "041": "Banrisul", "41": "Banrisul",
+                                "237": "Bradesco",
+                                "341": "Itaú",
+                                "033": "Santander", "33": "Santander",
+                                "756": "Sicoob",
+                                "748": "Sicredi",
+                                "085": "Viacredi / Ailos", "85": "Viacredi / Ailos",
+                                "021": "Banestes", "21": "Banestes"
+                            }
+                            
+                            ente_cnpj_clean = "".join([c for c in str(selected_cnpj or '').split('.')[0] if c.isdigit()]).zfill(14)
+                            
+                            for tx in tx_list:
+                                if tx.get('tipo_operacao_gestao_financeira') == 'D':
+                                    doc_raw = tx.get('doc_favorecido_gestao_financeira') or ''
+                                    doc_fav = "".join([c for c in str(doc_raw).split('.')[0] if c.isdigit()]).zfill(14)
+                                    fav_nome = str(tx.get('nome_favorecido_gestao_financeira') or '').upper().strip()
+                                    desc_tx = str(tx.get('descricao_gestao_financeira') or '').upper().strip()
+                                    
+                                    is_same_tit = (
+                                        (doc_fav and ente_cnpj_clean and doc_fav == ente_cnpj_clean) or
+                                        ("MESM T" in desc_tx or "MESMA TITULARIDADE" in desc_tx or "MESMO TITULAR" in desc_tx) or
+                                        ("MUNICIPIO" in fav_nome or "PREFEITURA" in fav_nome)
+                                    )
+                                    if is_same_tit:
+                                        tx_muni_transfers.append(tx)
+                                        
+                            if tx_muni_transfers:
+                                tot_transf_muni = sum(float(t.get('valor_gestao_financeira') or 0.0) for t in tx_muni_transfers)
+                                qtd_transf = len(tx_muni_transfers)
+                                
+                                destinos_info = []
                                 for t in tx_muni_transfers:
-                                    dt = pd.to_datetime(t.get('data_lancamento_gestao_financeira')) if t.get('data_lancamento_gestao_financeira') else None
-                                    vl = float(t.get('valor_gestao_financeira') or 0.0)
-                                    ds = t.get('descricao_gestao_financeira') or "Transferência"
                                     b_cod = "".join([c for c in str(t.get('codigo_banco_favorecido_gestao_financeira') or '') if c.isdigit()])
-                                    b_nome = BANCOS_MAP.get(b_cod, f"Banco {b_cod}" if b_cod else "-")
+                                    b_nome = BANCOS_MAP.get(b_cod, f"Banco {b_cod}" if b_cod else "Banco não informado")
                                     ag = str(t.get('codigo_agencia_favorecido_gestao_financeira') or '').strip()
                                     cc = str(t.get('codigo_conta_favorecido_gestao_financeira') or '').strip()
-                                    rows_transf.append({
-                                        'Data': dt,
-                                        'Valor (R$)': vl,
-                                        'Descrição': ds,
-                                        'Banco Destino': b_nome,
-                                        'Agência Destino': ag if ag else "-",
-                                        'Conta Destino': cc if cc else "-"
-                                    })
-                                df_transf_show = pd.DataFrame(rows_transf)
-                                if not df_transf_show.empty and 'Data' in df_transf_show.columns:
-                                    df_transf_show['Data'] = pd.to_datetime(df_transf_show['Data'], errors='coerce')
-                                    df_transf_show = df_transf_show.sort_values(by='Data', ascending=False)
-                                st.dataframe(
-                                    df_transf_show,
-                                    column_config={
-                                        'Data': st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-                                        'Valor (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
-                                    },
-                                    width="stretch",
-                                    hide_index=True
-                                )
-                                
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        
-                        # Criar dataframe para exibição
-                        df_tx = pd.DataFrame(tx_list)
-                        df_tx_show = pd.DataFrame()
-                        
-                        df_tx_show['Data'] = pd.to_datetime(df_tx['data_lancamento_gestao_financeira'], errors='coerce')
-                        df_tx_show['Operação'] = df_tx['tipo_operacao_gestao_financeira'].apply(
-                            lambda x: "🟢 Crédito" if x == 'C' else "🔴 Débito"
-                        )
-                        df_tx_show['Descrição'] = df_tx['descricao_gestao_financeira'].fillna("Lançamento")
-                        
-                        def get_agent_and_doc(row):
-                            if row['tipo_operacao_gestao_financeira'] == 'C':
-                                agent = row['nome_depositante_gestao_financeira']
-                                doc = row['doc_depositante_gestao_financeira']
-                            else:
-                                agent = row['nome_favorecido_gestao_financeira']
-                                doc = row['doc_favorecido_gestao_financeira']
-                            
-                            # Obter apenas dígitos numéricos para o documento
-                            doc_str = ""
-                            if pd.notna(doc):
-                                doc_str = "".join([c for c in str(doc).split('.')[0] if c.isdigit()])
-                                
-                            # Padronizar CNPJ (14 dígitos) e CPF (11 dígitos) com preenchimento de zeros à esquerda se suprimidos
-                            if 11 < len(doc_str) <= 14:
-                                doc_str = doc_str.zfill(14)
-                                formatted = f"{doc_str[:2]}.{doc_str[2:5]}.{doc_str[5:8]}/{doc_str[8:12]}-{doc_str[12:]}"
-                            elif 0 < len(doc_str) <= 11:
-                                doc_str = doc_str.zfill(11)
-                                formatted = f"{doc_str[:3]}.{doc_str[3:6]}.{doc_str[6:9]}-{doc_str[9:]}"
-                            else:
-                                formatted = "-"
-                                
-                            agent_str = "Não Identificado"
-                            if pd.notna(agent):
-                                agent_str = str(agent).strip()
-                                if agent_str.lower() in ("nan", "none", ""):
-                                    agent_str = "Não Identificado"
                                     
-                            return pd.Series([agent_str, formatted])
+                                    det_str = b_nome
+                                    if ag and ag != "***":
+                                        det_str += f" (Ag. {ag})"
+                                    if cc and cc != "***":
+                                        det_str += f" (Conta {cc})"
+                                    destinos_info.append(det_str)
+                                    
+                                destinos_unicos = list(dict.fromkeys(destinos_info))
+                                destinos_texto = ", ".join(destinos_unicos) if destinos_unicos else "Outra conta de titularidade da Prefeitura"
+                                
+                                st.markdown(f"""
+                                <div style="background-color: #fffbeb; border: 1.5px solid #f59e0b; border-left: 6px solid #d97706; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span style="font-size: 1.3rem;">⚠️</span>
+                                        <span style="font-size: 1.05rem; font-weight: 800; color: #92400e;">
+                                            ALERTA: TRANSFERÊNCIA DE RECURSOS PARA OUTRA CONTA DA PREFEITURA
+                                        </span>
+                                    </div>
+                                    <div style="font-size: 0.95rem; color: #78350f; margin-top: 8px; line-height: 1.5;">
+                                        Foi identificado que <b>{format_currency(tot_transf_muni)}</b> ({qtd_transf} transferência{'s' if qtd_transf > 1 else ''}) 
+                                        dos recursos desta emenda foram transferidos da conta oficial da emenda para <b>outra conta da Prefeitura</b> ({destinos_texto}).
+                                    </div>
+                                    <div style="font-size: 0.82rem; color: #b45309; margin-top: 8px; background-color: #fef3c7; padding: 8px 12px; border-radius: 6px; border: 1px solid #fde68a;">
+                                        📌 <b>Importância do Controle</b>: Isso pode acontecer em decorrência de retençoes de tributos (IRRF, INSS, ISS, etc.). Os recursos de transferências especiais devem ser executados e pagos a fornecedores <b>diretamente a partir da conta corrente específica da emenda</b>, evitando a transferência para outras contas gerais da Prefeitura onde a rastreabilidade direta do recurso federal pode ser comprometida.
+                                    </div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
+                                with st.expander(f"📋 Ver detalhamento das {qtd_transf} transferências para contas da Prefeitura"):
+                                    rows_transf = []
+                                    for t in tx_muni_transfers:
+                                        dt = pd.to_datetime(t.get('data_lancamento_gestao_financeira')) if t.get('data_lancamento_gestao_financeira') else None
+                                        vl = float(t.get('valor_gestao_financeira') or 0.0)
+                                        ds = t.get('descricao_gestao_financeira') or "Transferência"
+                                        b_cod = "".join([c for c in str(t.get('codigo_banco_favorecido_gestao_financeira') or '') if c.isdigit()])
+                                        b_nome = BANCOS_MAP.get(b_cod, f"Banco {b_cod}" if b_cod else "-")
+                                        ag = str(t.get('codigo_agencia_favorecido_gestao_financeira') or '').strip()
+                                        cc = str(t.get('codigo_conta_favorecido_gestao_financeira') or '').strip()
+                                        rows_transf.append({
+                                            'Data': dt,
+                                            'Valor (R$)': vl,
+                                            'Descrição': ds,
+                                            'Banco Destino': b_nome,
+                                            'Agência Destino': ag if ag else "-",
+                                            'Conta Destino': cc if cc else "-"
+                                        })
+                                    df_transf_show = pd.DataFrame(rows_transf)
+                                    if not df_transf_show.empty and 'Data' in df_transf_show.columns:
+                                        df_transf_show['Data'] = pd.to_datetime(df_transf_show['Data'], errors='coerce')
+                                        df_transf_show = df_transf_show.sort_values(by='Data', ascending=False)
+                                    st.dataframe(
+                                        df_transf_show,
+                                        column_config={
+                                            'Data': st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+                                            'Valor (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
+                                        },
+                                        width="stretch",
+                                        hide_index=True
+                                    )
+                                    
+                            st.markdown("<br>", unsafe_allow_html=True)
                             
-                        df_tx_show[['Origem/Destino', 'CNPJ/CPF']] = df_tx.apply(get_agent_and_doc, axis=1)
-                        df_tx_show['Valor (R$)'] = df_tx['valor_gestao_financeira'].astype(float).round(2)
-                        df_tx_show = df_tx_show.sort_values(by='Data', ascending=False)
-                        
-                        st.dataframe(
-                            df_tx_show[['Data', 'Operação', 'Descrição', 'Origem/Destino', 'CNPJ/CPF', 'Valor (R$)']],
-                            column_config={
-                                'Data': st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-                                'Valor (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
-                            },
-                            width="stretch",
-                            hide_index=True
-                        )
-                        
-                        # --- GRÁFICO DE BARRAS HORIZONTAIS: DÉBITOS DESTINADOS A PJs ---
-                        def is_pj_debit(row):
-                            if row.get('tipo_operacao_gestao_financeira') != 'D':
-                                return False
-                            doc = row.get('doc_favorecido_gestao_financeira')
-                            doc_str = ""
-                            if pd.notna(doc):
-                                doc_str = "".join([c for c in str(doc).split('.')[0] if c.isdigit()])
+                            # Criar dataframe para exibição
+                            df_tx = pd.DataFrame(tx_list)
+                            df_tx_show = pd.DataFrame()
+                            
+                            df_tx_show['Data'] = pd.to_datetime(df_tx['data_lancamento_gestao_financeira'], errors='coerce')
+                            df_tx_show['Operação'] = df_tx['tipo_operacao_gestao_financeira'].apply(
+                                lambda x: "🟢 Crédito" if x == 'C' else "🔴 Débito"
+                            )
+                            df_tx_show['Descrição'] = df_tx['descricao_gestao_financeira'].fillna("Lançamento")
+                            
+                            def get_agent_and_doc(row):
+                                if row['tipo_operacao_gestao_financeira'] == 'C':
+                                    agent = row['nome_depositante_gestao_financeira']
+                                    doc = row['doc_depositante_gestao_financeira']
+                                else:
+                                    agent = row['nome_favorecido_gestao_financeira']
+                                    doc = row['doc_favorecido_gestao_financeira']
+                                
+                                # Obter apenas dígitos numéricos para o documento
+                                doc_str = ""
+                                if pd.notna(doc):
+                                    doc_str = "".join([c for c in str(doc).split('.')[0] if c.isdigit()])
+                                    
+                                # Padronizar CNPJ (14 dígitos) e CPF (11 dígitos) com preenchimento de zeros à esquerda se suprimidos
                                 if 11 < len(doc_str) <= 14:
                                     doc_str = doc_str.zfill(14)
+                                    formatted = f"{doc_str[:2]}.{doc_str[2:5]}.{doc_str[5:8]}/{doc_str[8:12]}-{doc_str[12:]}"
+                                elif 0 < len(doc_str) <= 11:
+                                    doc_str = doc_str.zfill(11)
+                                    formatted = f"{doc_str[:3]}.{doc_str[3:6]}.{doc_str[6:9]}-{doc_str[9:]}"
+                                else:
+                                    formatted = "-"
                                     
-                            tipo = row.get('tipo_favorecido_gestao_financeira')
-                            is_pj = (str(tipo) in ('2', '2.0')) or (len(doc_str) == 14)
+                                agent_str = "Não Identificado"
+                                if pd.notna(agent):
+                                    agent_str = str(agent).strip()
+                                    if agent_str.lower() in ("nan", "none", ""):
+                                        agent_str = "Não Identificado"
+                                        
+                                return pd.Series([agent_str, formatted])
+                                
+                            df_tx_show[['Origem/Destino', 'CNPJ/CPF']] = df_tx.apply(get_agent_and_doc, axis=1)
+                            df_tx_show['Valor (R$)'] = df_tx['valor_gestao_financeira'].astype(float).round(2)
+                            df_tx_show = df_tx_show.sort_values(by='Data', ascending=False)
                             
-                            fav = row.get('nome_favorecido_gestao_financeira')
-                            has_fav = pd.notna(fav) and str(fav).strip() != "" and str(fav).strip().lower() not in ("nan", "none")
-                            if not (is_pj and has_fav):
-                                return False
-
-                            doc_14 = doc_str.zfill(14) if doc_str else ""
-                            fav_upper = str(fav).upper().strip()
-                            desc_upper = str(row.get('descricao_gestao_financeira') or '').upper().strip()
-
-                            # Excluir bancos, aplicações e tarifas
-                            if doc_14.startswith('00000000') or doc_14.startswith('00360305'):
-                                return False
-                            if any(b in fav_upper for b in ['BANCO DO BRASIL', 'CAIXA ECONOMICA', 'BANRISUL', 'BRADESCO', 'ITAU', 'SANTANDER', 'DTVM']):
-                                return False
-                            if any(op in desc_upper for op in ['BB-APLIC', 'APLIC', 'INVESTIMENTO', 'FUNDO', 'RESGATE', 'TARIFA', 'DOC/TED INTERNET', 'TAR COBRANCA']):
-                                return False
-
-                            # Excluir prefeituras e transferências de mesma titularidade
-                            if any(m in fav_upper for m in ['MUNICIPIO DE', 'PREFEITURA', 'ESTADO DE SANTA CATARINA']):
-                                return False
-                            if any(term in desc_upper for term in ['MESM T', 'MESMA TITULARIDADE', 'MESMO TITULAR']):
-                                return False
-
-                            return True
-
-                        df_pj_debits = df_tx[df_tx.apply(is_pj_debit, axis=1)].copy()
-                        for doc in df_pj_debits['doc_favorecido_gestao_financeira'].dropna():
-                            doc_str = "".join([c for c in str(doc).split('.')[0] if c.isdigit()])
-                            if len(doc_str) > 11:
-                                pjs_paid_cnpjs.add(doc_str.zfill(14))
-                            elif len(doc_str) > 0:
-                                pjs_paid_cnpjs.add(doc_str.zfill(11))
-                        
-                        if not df_pj_debits.empty:
-                            # Agrupar por nome do favorecido PJ (padronizado)
-                            df_chart_data = df_pj_debits.groupby('nome_favorecido_gestao_financeira')['valor_gestao_financeira'].sum().reset_index()
-                            df_chart_data = df_chart_data.sort_values(by='valor_gestao_financeira', ascending=True) # Ascending True para o Plotly ordenar decrescente com o maior no topo
-                            
-                            st.markdown("<br>", unsafe_allow_html=True)
-                            st.markdown("###### 📊 Concentração de Débitos por Pessoa Jurídica (Ordem Decrescente)")
-                            
-                            fig_pj = px.bar(
-                                df_chart_data,
-                                x='valor_gestao_financeira',
-                                y='nome_favorecido_gestao_financeira',
-                                orientation='h',
-                                labels={
-                                    'valor_gestao_financeira': 'Valor Total Pago (R$)',
-                                    'nome_favorecido_gestao_financeira': 'Pessoa Jurídica Beneficiária'
+                            st.dataframe(
+                                df_tx_show[['Data', 'Operação', 'Descrição', 'Origem/Destino', 'CNPJ/CPF', 'Valor (R$)']],
+                                column_config={
+                                    'Data': st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+                                    'Valor (R$)': st.column_config.NumberColumn(format="localized", step=0.01)
                                 },
-                                color_discrete_sequence=['#ef4444'] # Cor vermelha elegante para saídas/débitos
+                                width="stretch",
+                                hide_index=True
                             )
                             
-                            fig_pj.update_layout(
-                                margin=dict(l=20, r=20, t=10, b=10),
-                                height=min(450, max(220, 45 * len(df_chart_data))),
-                                paper_bgcolor='rgba(0,0,0,0)',
-                                plot_bgcolor='rgba(0,0,0,0)',
-                                xaxis=dict(gridcolor='#e2e8f0', title='Valor Total Pago (R$)'),
-                                yaxis=dict(title=None, categoryorder='total ascending')
-                            )
+                            # --- GRÁFICO DE BARRAS HORIZONTAIS: DÉBITOS DESTINADOS A PJs ---
+                            def is_pj_debit(row):
+                                if row.get('tipo_operacao_gestao_financeira') != 'D':
+                                    return False
+                                doc = row.get('doc_favorecido_gestao_financeira')
+                                doc_str = ""
+                                if pd.notna(doc):
+                                    doc_str = "".join([c for c in str(doc).split('.')[0] if c.isdigit()])
+                                    if 11 < len(doc_str) <= 14:
+                                        doc_str = doc_str.zfill(14)
+                                        
+                                tipo = row.get('tipo_favorecido_gestao_financeira')
+                                is_pj = (str(tipo) in ('2', '2.0')) or (len(doc_str) == 14)
+                                
+                                fav = row.get('nome_favorecido_gestao_financeira')
+                                has_fav = pd.notna(fav) and str(fav).strip() != "" and str(fav).strip().lower() not in ("nan", "none")
+                                if not (is_pj and has_fav):
+                                    return False
+
+                                doc_14 = doc_str.zfill(14) if doc_str else ""
+                                fav_upper = str(fav).upper().strip()
+                                desc_upper = str(row.get('descricao_gestao_financeira') or '').upper().strip()
+
+                                # Excluir bancos, aplicações e tarifas
+                                if doc_14.startswith('00000000') or doc_14.startswith('00360305'):
+                                    return False
+                                if any(b in fav_upper for b in ['BANCO DO BRASIL', 'CAIXA ECONOMICA', 'BANRISUL', 'BRADESCO', 'ITAU', 'SANTANDER', 'DTVM']):
+                                    return False
+                                if any(op in desc_upper for op in ['BB-APLIC', 'APLIC', 'INVESTIMENTO', 'FUNDO', 'RESGATE', 'TARIFA', 'DOC/TED INTERNET', 'TAR COBRANCA']):
+                                    return False
+
+                                # Excluir prefeituras e transferências de mesma titularidade
+                                if any(m in fav_upper for m in ['MUNICIPIO DE', 'PREFEITURA', 'ESTADO DE SANTA CATARINA']):
+                                    return False
+                                if any(term in desc_upper for term in ['MESM T', 'MESMA TITULARIDADE', 'MESMO TITULAR']):
+                                    return False
+
+                                return True
+
+                            df_pj_debits = df_tx[df_tx.apply(is_pj_debit, axis=1)].copy()
+                            for doc in df_pj_debits['doc_favorecido_gestao_financeira'].dropna():
+                                doc_str = "".join([c for c in str(doc).split('.')[0] if c.isdigit()])
+                                if len(doc_str) > 11:
+                                    pjs_paid_cnpjs.add(doc_str.zfill(14))
+                                elif len(doc_str) > 0:
+                                    pjs_paid_cnpjs.add(doc_str.zfill(11))
                             
-                            st.plotly_chart(fig_pj, width="stretch")
+                            if not df_pj_debits.empty:
+                                # Agrupar por nome do favorecido PJ (padronizado)
+                                df_chart_data = df_pj_debits.groupby('nome_favorecido_gestao_financeira')['valor_gestao_financeira'].sum().reset_index()
+                                df_chart_data = df_chart_data.sort_values(by='valor_gestao_financeira', ascending=True) # Ascending True para o Plotly ordenar decrescente com o maior no topo
+                                
+                                st.markdown("<br>", unsafe_allow_html=True)
+                                st.markdown("###### 📊 Concentração de Débitos por Pessoa Jurídica (Ordem Decrescente)")
+                                
+                                fig_pj = px.bar(
+                                    df_chart_data,
+                                    x='valor_gestao_financeira',
+                                    y='nome_favorecido_gestao_financeira',
+                                    orientation='h',
+                                    labels={
+                                        'valor_gestao_financeira': 'Valor Total Pago (R$)',
+                                        'nome_favorecido_gestao_financeira': 'Pessoa Jurídica Beneficiária'
+                                    },
+                                    color_discrete_sequence=['#ef4444'] # Cor vermelha elegante para saídas/débitos
+                                )
+                                
+                                fig_pj.update_layout(
+                                    margin=dict(l=20, r=20, t=10, b=10),
+                                    height=min(450, max(220, 45 * len(df_chart_data))),
+                                    paper_bgcolor='rgba(0,0,0,0)',
+                                    plot_bgcolor='rgba(0,0,0,0)',
+                                    xaxis=dict(gridcolor='#e2e8f0', title='Valor Total Pago (R$)'),
+                                    yaxis=dict(title=None, categoryorder='total ascending')
+                                )
+                                
+                                st.plotly_chart(fig_pj, width="stretch")
+                        elif banco_codigo and agencia_para_extrato and conta_para_extrato:
+                            st.info("Nenhuma movimentação financeira retornada pela API do Transferegov para esta conta corrente.")
                             
                     # --- SEÇÃO DE LICITAÇÕES SIMILARES POR OBJETIVOS ---
                     st.markdown("<br>", unsafe_allow_html=True)
